@@ -50,7 +50,7 @@ function RecentlyWatchedSection({
   onSessionExpired,
   refreshKey,
 }: {
-  onOpenPost: (postId: string) => void
+  onOpenPost: (postId: string, navigationPostIds: string[]) => void
   onSessionExpired: () => void
   refreshKey: number
 }) {
@@ -138,7 +138,7 @@ function RecentlyWatchedSection({
                   <button
                     className="secondary-button"
                     type="button"
-                    onClick={() => onOpenPost(post.id)}
+                    onClick={() => onOpenPost(post.id, posts.map((item) => item.id))}
                   >
                     View recently watched post
                   </button>
@@ -159,6 +159,8 @@ function PostDetails({
   onFavoriteChanged,
   onViewRecorded,
   onSessionExpired,
+  navigationPostIds,
+  onNavigatePost,
 }: {
   postId: string
   csrfToken: string
@@ -166,6 +168,8 @@ function PostDetails({
   onFavoriteChanged: (post: LibraryPost) => void
   onViewRecorded: () => void
   onSessionExpired: () => void
+  navigationPostIds: string[]
+  onNavigatePost: (postId: string) => void
 }) {
   const [post, setPost] = useState<LibraryPost | null>(null)
   const [loading, setLoading] = useState(true)
@@ -275,15 +279,42 @@ function PostDetails({
     }
   }, [postId, csrfToken, viewRetryCount, onViewRecorded, onSessionExpired])
 
-  if (post && viewerOpen) {
+  if (viewerOpen) {
+    if (post?.id === postId && !loading && !error) {
+      return (
+        <PostViewer
+          post={post}
+          postType={null}
+          creatorUsername={null}
+          caption={null}
+          navigationPostIds={navigationPostIds}
+          onNavigatePost={onNavigatePost}
+          onBack={() => setViewerOpen(false)}
+        />
+      )
+    }
+
     return (
-      <PostViewer
-        post={post}
-        postType={null}
-        creatorUsername={null}
-        caption={null}
-        onBack={() => setViewerOpen(false)}
-      />
+      <section className="post-viewer" aria-label="Loading post viewer">
+        {!error && (loading || post?.id !== postId) && (
+          <p className="library-status" role="status">Loading next post…</p>
+        )}
+        {error && (
+          <div className="library-error" role="alert">
+            <p>{error}</p>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setRetryCount((value) => value + 1)}
+            >
+              Retry
+            </button>
+            <button className="text-button" type="button" onClick={() => setViewerOpen(false)}>
+              Back to post details
+            </button>
+          </div>
+        )}
+      </section>
     )
   }
 
@@ -401,6 +432,7 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
   const [categories, setCategories] = useState<Category[]>([])
   const [collections, setCollections] = useState<UserCollection[]>([])
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
+  const [navigationPostIds, setNavigationPostIds] = useState<string[]>([])
   const [managingCategories, setManagingCategories] = useState(false)
   const [managingCollections, setManagingCollections] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -417,6 +449,11 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
   const handleViewRecorded = useCallback(() => {
     setRecentlyWatchedRefreshKey((value) => value + 1)
   }, [])
+
+  function handleOpenPost(postId: string, contextPostIds: string[]) {
+    setNavigationPostIds(contextPostIds)
+    setSelectedPostId(postId)
+  }
 
   function handleFavoriteChanged(updatedPost: LibraryPost) {
     setLibraryPage((currentPage) =>
@@ -534,7 +571,7 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
     >
       {!selectedPostId && !managingCategories && !managingCollections && (
         <RecentlyWatchedSection
-          onOpenPost={setSelectedPostId}
+          onOpenPost={handleOpenPost}
           onSessionExpired={onSessionExpired}
           refreshKey={recentlyWatchedRefreshKey}
         />
@@ -547,6 +584,8 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
           onFavoriteChanged={handleFavoriteChanged}
           onViewRecorded={handleViewRecorded}
           onSessionExpired={onSessionExpired}
+          navigationPostIds={navigationPostIds}
+          onNavigatePost={setSelectedPostId}
         />
       ) : managingCategories ? (
         <CategoryManager
@@ -558,7 +597,7 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
         <CollectionManager
           csrfToken={csrfToken}
           onBack={() => setManagingCollections(false)}
-          onOpenPost={setSelectedPostId}
+          onOpenPost={handleOpenPost}
           onSessionExpired={onSessionExpired}
         />
       ) : (
@@ -763,7 +802,10 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
                     key={post.id}
                     post={post}
                     csrfToken={csrfToken}
-                    onOpen={() => setSelectedPostId(post.id)}
+                    onOpen={() => handleOpenPost(
+                      post.id,
+                      libraryPage.items.map((item) => item.id),
+                    )}
                     onFavoriteChanged={handleFavoriteChanged}
                     onSessionExpired={onSessionExpired}
                   />

@@ -266,6 +266,51 @@ describe('protected paginated library', () => {
     )).toHaveLength(1)
   })
 
+  it('navigates in the library page order and records each manually selected post as viewed', async () => {
+    const posts = new Map([
+      [firstPost.id, firstPost],
+      [secondPost.id, secondPost],
+    ])
+    const viewedPostIds: string[] = []
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts/recently-watched')) {
+        return jsonResponse([])
+      }
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([firstPost, secondPost]))
+      }
+      if (path.endsWith('/view')) {
+        viewedPostIds.push(path.split('/')[3])
+        return noContentResponse()
+      }
+      if (path.endsWith('/notes')) {
+        const postId = path.split('/')[3]
+        return jsonResponse({ postId, note: null, updatedAt: null })
+      }
+      if (path.endsWith('/categories') || path.endsWith('/collections')) {
+        return jsonResponse([])
+      }
+      const postId = path.split('/')[3]
+      return jsonResponse(posts.get(postId) ?? firstPost)
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await user.click((await screen.findAllByRole('button', { name: 'View post details' }))[0])
+    await waitFor(() => expect(viewedPostIds).toEqual([firstPost.id]))
+    await user.click(screen.getByRole('button', { name: 'Open post viewer' }))
+    expect(await screen.findByText(/Post\s+1\s+of\s+2/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Next post' }))
+
+    expect(await screen.findByText(/Post\s+2\s+of\s+2/)).toBeInTheDocument()
+    await waitFor(() => expect(viewedPostIds).toEqual([firstPost.id, secondPost.id]))
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/posts/${secondPost.id}`,
+      expect.objectContaining({ method: 'GET', credentials: 'include' }),
+    )
+  })
+
   it('sets and removes favorite state from a card and from post details', async () => {
     let favorite = false
     fetchMock.mockImplementation(async (input, options) => {
@@ -409,6 +454,49 @@ describe('protected paginated library', () => {
     expect(within(recentSection).getAllByRole('button', {
       name: 'View recently watched post',
     })).toHaveLength(2)
+  })
+
+  it('preserves Recently Watched ordering and view tracking in the viewer', async () => {
+    const orderedRecentlyWatched = [
+      { ...secondPost, lastViewedAt: '2026-04-03T00:00:00Z' },
+      { ...firstPost, lastViewedAt: '2026-04-01T00:00:00Z' },
+    ]
+    const viewedPostIds: string[] = []
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts/recently-watched')) {
+        return jsonResponse(orderedRecentlyWatched)
+      }
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([]))
+      }
+      if (path.endsWith('/view')) {
+        viewedPostIds.push(path.split('/')[3])
+        return noContentResponse()
+      }
+      if (path.endsWith('/notes')) {
+        const postId = path.split('/')[3]
+        return jsonResponse({ postId, note: null, updatedAt: null })
+      }
+      if (path.endsWith('/categories') || path.endsWith('/collections')) {
+        return jsonResponse([])
+      }
+      const postId = path.split('/')[3]
+      return jsonResponse(postId === firstPost.id ? firstPost : secondPost)
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    const recentButtons = await screen.findAllByRole('button', {
+      name: 'View recently watched post',
+    })
+    await user.click(recentButtons[1])
+    await waitFor(() => expect(viewedPostIds).toEqual([firstPost.id]))
+    await user.click(screen.getByRole('button', { name: 'Open post viewer' }))
+
+    expect(await screen.findByText(/Post\s+2\s+of\s+2/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Previous post' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Next post' })).toBeDisabled()
   })
 
   it('records a view when details open and refreshes Recently Watched on return', async () => {

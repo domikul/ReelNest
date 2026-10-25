@@ -141,6 +141,11 @@ describe('collection management', () => {
     const originalLinks = await screen.findAllByRole('link', { name: /Open original Instagram post/ })
     expect(originalLinks).toHaveLength(2)
     expect(originalLinks[0]).toHaveAttribute('href', firstPost.originalUrl)
+    await user.click(screen.getAllByRole('button', { name: 'View post details' })[0])
+    expect(onOpenPost).toHaveBeenLastCalledWith(
+      firstPost.id,
+      [firstPost.id, secondPost.id],
+    )
     await user.click(screen.getAllByRole('button', { name: 'Remove from Synthetic collection' })[0])
     await waitFor(() =>
       expect(screen.getAllByRole('link', { name: /Open original Instagram post/ })).toHaveLength(1),
@@ -149,7 +154,7 @@ describe('collection management', () => {
       .toHaveAttribute('href', secondPost.originalUrl)
 
     await user.click(screen.getByRole('button', { name: 'View post details' }))
-    expect(onOpenPost).toHaveBeenCalledWith(secondPost.id)
+    expect(onOpenPost).toHaveBeenLastCalledWith(secondPost.id, [secondPost.id])
     const removeRequest = fetchMock.mock.calls.find(([, options]) => options?.method === 'DELETE')
     expect(removeRequest?.[1]).toEqual(expect.objectContaining({
       credentials: 'include',

@@ -13,6 +13,7 @@ const post: LibraryPost = {
 describe('single-post viewer layouts', () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
   })
 
   it.each([
@@ -208,5 +209,148 @@ describe('single-post viewer layouts', () => {
 
     screen.getByRole('button', { name: 'Back to post details' }).click()
     expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  it('keeps previous and next navigation in the supplied order and reports position', () => {
+    const orderedPosts = [
+      post,
+      { ...post, id: '00000000-0000-0000-0000-000000000002' },
+      { ...post, id: '00000000-0000-0000-0000-000000000003' },
+    ]
+    const onNavigatePost = vi.fn()
+    render(
+      <PostViewer
+        post={orderedPosts[1]}
+        postType={null}
+        creatorUsername={null}
+        caption={null}
+        navigationPostIds={orderedPosts.map((item) => item.id)}
+        onNavigatePost={onNavigatePost}
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Post 2 of 3')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Previous post' }))
+    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[0].id)
+    fireEvent.click(screen.getByRole('button', { name: 'Next post' }))
+    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[2].id)
+  })
+
+  it('disables navigation at the first and last posts and states the boundary', () => {
+    const orderedPosts = [
+      post,
+      { ...post, id: '00000000-0000-0000-0000-000000000002' },
+    ]
+    const onNavigatePost = vi.fn()
+    const { rerender } = render(
+      <PostViewer
+        post={orderedPosts[0]}
+        postType={null}
+        creatorUsername={null}
+        caption={null}
+        navigationPostIds={orderedPosts.map((item) => item.id)}
+        onNavigatePost={onNavigatePost}
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Previous post' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Next post' })).toBeEnabled()
+    expect(screen.getByText(/First post in this viewing set/)).toBeInTheDocument()
+
+    rerender(
+      <PostViewer
+        post={orderedPosts[1]}
+        postType={null}
+        creatorUsername={null}
+        caption={null}
+        navigationPostIds={orderedPosts.map((item) => item.id)}
+        onNavigatePost={onNavigatePost}
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Previous post' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Next post' })).toBeDisabled()
+    expect(screen.getByText(/Last post in this viewing set/)).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    expect(onNavigatePost).not.toHaveBeenCalled()
+  })
+
+  it('supports desktop arrow-key navigation', () => {
+    const orderedPosts = [
+      post,
+      { ...post, id: '00000000-0000-0000-0000-000000000002' },
+      { ...post, id: '00000000-0000-0000-0000-000000000003' },
+    ]
+    const onNavigatePost = vi.fn()
+    render(
+      <PostViewer
+        post={orderedPosts[1]}
+        postType={null}
+        creatorUsername={null}
+        caption={null}
+        navigationPostIds={orderedPosts.map((item) => item.id)}
+        onNavigatePost={onNavigatePost}
+        onBack={vi.fn()}
+      />,
+    )
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[0].id)
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[2].id)
+  })
+
+  it('supports horizontal touch swipes without treating vertical scroll as navigation', () => {
+    const orderedPosts = [
+      post,
+      { ...post, id: '00000000-0000-0000-0000-000000000002' },
+      { ...post, id: '00000000-0000-0000-0000-000000000003' },
+    ]
+    const onNavigatePost = vi.fn()
+    render(
+      <PostViewer
+        post={orderedPosts[1]}
+        postType="image"
+        creatorUsername={null}
+        caption={null}
+        navigationPostIds={orderedPosts.map((item) => item.id)}
+        onNavigatePost={onNavigatePost}
+        onBack={vi.fn()}
+      />,
+    )
+    const media = screen.getByRole('img', { name: 'Image media is not available in this import.' })
+
+    fireEvent.touchStart(media, { touches: [{ clientX: 180, clientY: 100 }] })
+    fireEvent.touchEnd(media, { changedTouches: [{ clientX: 100, clientY: 105 }] })
+    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[2].id)
+
+    fireEvent.touchStart(media, { touches: [{ clientX: 100, clientY: 100 }] })
+    fireEvent.touchEnd(media, { changedTouches: [{ clientX: 105, clientY: 180 }] })
+    expect(onNavigatePost).toHaveBeenCalledOnce()
+  })
+
+  it('does not progress automatically after waiting at a post', () => {
+    vi.useFakeTimers()
+    const onNavigatePost = vi.fn()
+    const nextPost = { ...post, id: '00000000-0000-0000-0000-000000000002' }
+    render(
+      <PostViewer
+        post={post}
+        postType={null}
+        creatorUsername={null}
+        caption={null}
+        navigationPostIds={[post.id, nextPost.id]}
+        onNavigatePost={onNavigatePost}
+        onBack={vi.fn()}
+      />,
+    )
+
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(onNavigatePost).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Next post' }))
+    expect(onNavigatePost).toHaveBeenCalledWith(nextPost.id)
   })
 })

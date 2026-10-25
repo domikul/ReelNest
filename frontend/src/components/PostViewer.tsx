@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { TouchEvent } from 'react'
 import type { LibraryPost } from '../api/library'
 
 interface PostViewerProps {
@@ -6,6 +7,8 @@ interface PostViewerProps {
   postType: string | null
   creatorUsername: string | null
   caption: string | null
+  navigationPostIds?: string[]
+  onNavigatePost?: (postId: string) => void
   onBack: () => void
 }
 
@@ -87,14 +90,56 @@ function formatSavedAt(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value))
 }
 
-function PostViewer({ post, postType, creatorUsername, caption, onBack }: PostViewerProps) {
+function PostViewer({
+  post,
+  postType,
+  creatorUsername,
+  caption,
+  navigationPostIds = [],
+  onNavigatePost,
+  onBack,
+}: PostViewerProps) {
   const mediaLayout = describePostType(postType)
   const originalUrl = parseInstagramUrl(post.originalUrl)?.href ?? null
   const embedUrl = getInstagramEmbedUrl(post.originalUrl)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
   const [embedStatus, setEmbedStatus] = useState<EmbedStatus>(
     embedUrl ? 'loading' : 'unavailable',
   )
+  const currentPostIndex = navigationPostIds.indexOf(post.id)
+  const canNavigate = currentPostIndex >= 0 && onNavigatePost !== undefined
+  const previousPostId = canNavigate ? navigationPostIds[currentPostIndex - 1] : undefined
+  const nextPostId = canNavigate ? navigationPostIds[currentPostIndex + 1] : undefined
+
+  function navigateTo(postId: string | undefined) {
+    if (postId) {
+      onNavigatePost?.(postId)
+    }
+  }
+
+  function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
+    const touch = event.touches[0] ?? event.changedTouches[0]
+    touchStart.current = touch
+      ? { x: touch.clientX, y: touch.clientY }
+      : null
+  }
+
+  function handleTouchEnd(event: TouchEvent<HTMLDivElement>) {
+    const start = touchStart.current
+    const touch = event.changedTouches[0]
+    touchStart.current = null
+    if (!start || !touch) {
+      return
+    }
+
+    const horizontalDistance = touch.clientX - start.x
+    const verticalDistance = touch.clientY - start.y
+    if (Math.abs(horizontalDistance) < 48 || Math.abs(horizontalDistance) <= Math.abs(verticalDistance)) {
+      return
+    }
+    navigateTo(horizontalDistance < 0 ? nextPostId : previousPostId)
+  }
 
   useEffect(() => {
     if (!embedUrl) {
@@ -137,6 +182,37 @@ function PostViewer({ post, postType, creatorUsername, caption, onBack }: PostVi
     }
   }, [embedUrl])
 
+  useEffect(() => {
+    if (!canNavigate) {
+      return
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        (event.target instanceof HTMLElement &&
+          (event.target.isContentEditable ||
+            event.target.closest('input, textarea, select, [contenteditable="true"]') !== null))
+      ) {
+        return
+      }
+
+      if (event.key === 'ArrowLeft' && previousPostId) {
+        event.preventDefault()
+        navigateTo(previousPostId)
+      } else if (event.key === 'ArrowRight' && nextPostId) {
+        event.preventDefault()
+        navigateTo(nextPostId)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [canNavigate, nextPostId, onNavigatePost, previousPostId])
+
   return (
     <section className="post-viewer" aria-labelledby="post-details-title">
       <button className="text-button" type="button" onClick={onBack}>
@@ -150,6 +226,8 @@ function PostViewer({ post, postType, creatorUsername, caption, onBack }: PostVi
         <div
           className={`post-viewer-media post-viewer-media--${mediaLayout.layout} post-viewer-embed`}
           aria-busy={embedStatus === 'loading'}
+          onTouchStart={canNavigate ? handleTouchStart : undefined}
+          onTouchEnd={canNavigate ? handleTouchEnd : undefined}
         >
           <iframe
             title={postType?.toLowerCase() === 'reel' || postType?.toLowerCase() === 'video'
@@ -170,9 +248,44 @@ function PostViewer({ post, postType, creatorUsername, caption, onBack }: PostVi
           className={`post-viewer-media post-viewer-media--${mediaLayout.layout}`}
           role="img"
           aria-label={mediaLayout.unavailableMessage}
+          onTouchStart={canNavigate ? handleTouchStart : undefined}
+          onTouchEnd={canNavigate ? handleTouchEnd : undefined}
         >
           <p>{mediaLayout.unavailableMessage}</p>
         </div>
+      )}
+      {canNavigate && (
+        <nav className="post-viewer-navigation" aria-label="Post navigation">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!previousPostId}
+            onClick={() => navigateTo(previousPostId)}
+          >
+            Previous post
+          </button>
+          <p className="post-viewer-position" aria-live="polite">
+            Post {currentPostIndex + 1} of {navigationPostIds.length}
+            {currentPostIndex === 0 && navigationPostIds.length === 1
+              ? ' · Only post in this viewing set.'
+              : currentPostIndex === 0
+                ? ' · First post in this viewing set.'
+                : currentPostIndex === navigationPostIds.length - 1
+                  ? ' · Last post in this viewing set.'
+                  : ''}
+          </p>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!nextPostId}
+            onClick={() => navigateTo(nextPostId)}
+          >
+            Next post
+          </button>
+          <p className="post-viewer-navigation-hint">
+            Use the left/right arrow keys or swipe on the post area to navigate.
+          </p>
+        </nav>
       )}
       {embedUrl && embedStatus === 'loading' && (
         <p className="viewer-embed-status" role="status">Loading the Instagram embed…</p>

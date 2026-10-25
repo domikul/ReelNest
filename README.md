@@ -128,6 +128,10 @@ viewer attempts a sandboxed Instagram embed and always provides a safe
 "Open original on Instagram" fallback when the URL is valid. Unsupported,
 blocked, or unavailable embeds fall back to the original post link; the viewer
 does not scrape Instagram, download media, or claim that an embed is playable.
+Previous/next navigation stays within the ordered posts on the current library
+or collection page, or the displayed Recently Watched list. On-screen controls,
+desktop arrow keys, and horizontal touch swipes are supported; navigation stops
+at each set boundary and never advances automatically.
 Use `GET /api/posts/{id}/notes` to view a note, `PUT /api/posts/{id}/notes` with
 `{"note":"..."}` to create or update it, and `DELETE /api/posts/{id}/notes`
 to remove it. Notes must contain non-whitespace text and may be up to 5,000

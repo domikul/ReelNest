@@ -18,7 +18,7 @@ const collectionPageSize = 20
 interface CollectionManagerProps {
   csrfToken: string
   onBack: () => void
-  onOpenPost: (postId: string) => void
+  onOpenPost: (postId: string, navigationPostIds: string[]) => void
   onSessionExpired: () => void
 }
 
@@ -437,7 +437,10 @@ function CollectionManager({
                       <button
                         className="secondary-button"
                         type="button"
-                        onClick={() => onOpenPost(post.id)}
+                        onClick={() => onOpenPost(
+                          post.id,
+                          collectionPosts.items.map((item) => item.id),
+                        )}
                       >
                         View post details
                       </button>
