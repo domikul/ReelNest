@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import ImportPanel from './components/ImportPanel'
 
 type Theme = 'system' | 'light' | 'dark'
 
@@ -26,6 +27,9 @@ function App() {
           </span>
           <span className="brand-name">ReelNest</span>
         </a>
+        <nav className="topnav" aria-label="Main navigation">
+          <a href="#import">Import</a>
+        </nav>
         <label className="theme-picker">
           <span>Appearance</span>
           <select
@@ -53,12 +57,16 @@ function App() {
           scroll.
         </p>
 
-        <div className="empty-state">
+        <div className="import-card" id="import" aria-labelledby="import-title">
           <span className="empty-mark" aria-hidden="true">
             <span />
           </span>
-          <h2>Your nest is ready</h2>
-          <p>Your library will take shape in a later milestone.</p>
+          <h2 id="import-title">Bring your saved posts home</h2>
+          <p>
+            Start with your Instagram saved-post export. ReelNest will keep the
+            source details and show a summary before you continue.
+          </p>
+          <ImportPanel />
         </div>
       </section>
 

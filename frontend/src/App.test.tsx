@@ -19,8 +19,11 @@ describe('ReelNest application shell', () => {
       screen.getByRole('heading', { name: 'Your saved reels. Finally at home.' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Your library will take shape in a later milestone.'),
+      screen.getByRole('heading', { name: 'Bring your saved posts home' }),
     ).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Main navigation' })).toHaveTextContent(
+      'Import',
+    )
   })
 
   it.each(['light', 'dark', 'system'] as const)(
