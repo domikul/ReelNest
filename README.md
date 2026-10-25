@@ -123,7 +123,11 @@ the single-post layouts.
 Reel/video, carousel, and image types have distinct fallback layouts, but the
 current importer/API does not supply post type, creator, caption, or media
 references. Existing imported posts therefore show the unknown-type and
-unavailable-media state; the viewer does not play or embed Instagram content.
+unavailable-media state. For supported Instagram `/p/` and `/reel/` URLs, the
+viewer attempts a sandboxed Instagram embed and always provides a safe
+"Open original on Instagram" fallback when the URL is valid. Unsupported,
+blocked, or unavailable embeds fall back to the original post link; the viewer
+does not scrape Instagram, download media, or claim that an embed is playable.
 Use `GET /api/posts/{id}/notes` to view a note, `PUT /api/posts/{id}/notes` with
 `{"note":"..."}` to create or update it, and `DELETE /api/posts/{id}/notes`
 to remove it. Notes must contain non-whitespace text and may be up to 5,000
@@ -187,6 +191,7 @@ The backend importer accepts the observed saved-post export format, and the
 library currently displays imported saved dates, original post links,
 persistent favorites, personal notes, and user-managed categories.
 User-managed collections, server-side library search, and recently watched
-history are available as well. The post viewer, watch sessions, and the full
-application database schema belong to later milestones.
+history are available as well. The post viewer supports permitted Instagram
+embeds with original-post fallback; watch sessions and the full application
+database schema belong to later milestones.
 No personal Instagram export data is required or included in Git.
