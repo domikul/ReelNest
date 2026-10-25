@@ -81,7 +81,12 @@ function ImportResult({ summary }: { summary: ImportSummary }) {
   )
 }
 
-function ImportPanel() {
+interface ImportPanelProps {
+  csrfToken: string
+  onSessionExpired: () => void
+}
+
+function ImportPanel({ csrfToken, onSessionExpired }: ImportPanelProps) {
   const [file, setFile] = useState<File | null>(null)
   const [summary, setSummary] = useState<ImportSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -130,13 +135,20 @@ function ImportPanel() {
     setSummary(null)
 
     try {
-      const result = await uploadSavedPosts(file)
+      const result = await uploadSavedPosts(file, csrfToken)
       setSummary(result)
       setFile(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
     } catch (cause) {
+      if (
+        cause instanceof ImportApiError &&
+        (cause.status === 401 || cause.status === 403)
+      ) {
+        onSessionExpired()
+        return
+      }
       setError(
         cause instanceof ImportApiError
           ? cause.message

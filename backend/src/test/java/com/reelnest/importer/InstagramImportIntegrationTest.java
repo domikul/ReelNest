@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -14,6 +15,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -22,6 +24,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -34,6 +40,9 @@ class InstagramImportIntegrationTest {
         registry.add("spring.datasource.url", InstagramImportIntegrationTest::testDatabaseUrl);
         registry.add("spring.flyway.schemas", () -> "reelnest_import_test");
         registry.add("spring.flyway.default-schema", () -> "reelnest_import_test");
+        registry.add("reelnest.auth.username", () -> "integration-user");
+        registry.add("reelnest.auth.password", () -> "integration-password-long-enough");
+        registry.add("reelnest.cors.allowed-origins", () -> "https://frontend.example.test");
     }
 
     private static String testDatabaseUrl() {
@@ -52,6 +61,9 @@ class InstagramImportIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private Environment environment;
 
     @BeforeEach
     void clearDatabase() {
@@ -83,7 +95,8 @@ class InstagramImportIntegrationTest {
         String importId = objectMapper.readTree(result.getResponse().getContentAsString())
                 .get("importId")
                 .asText();
-        mockMvc.perform(MockMvcRequestBuilders.get("/api/imports/{importId}", importId))
+        mockMvc.perform(get("/api/imports/{importId}", importId)
+                        .session(authenticatedSession()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.addedCount").value(1))
                 .andExpect(jsonPath("$.skippedCount").value(1))
@@ -166,13 +179,154 @@ class InstagramImportIntegrationTest {
                         "Unsupported export structure. This endpoint accepts the observed saved_posts.json format."));
     }
 
+    @Test
+    void unauthenticatedRequestsAreRejectedAndHealthRemainsPublic() throws Exception {
+        mockMvc.perform(get("/api/imports/{importId}", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/health"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void loginRequiresCsrfAuthenticatesAndRotatesTheSession() throws Exception {
+        MvcResult csrfResult = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk())
+                .andReturn();
+        MockHttpSession session = (MockHttpSession) csrfResult.getRequest().getSession(false);
+        String previousSessionId = session.getId();
+        String csrfToken = objectMapper.readTree(csrfResult.getResponse().getContentAsString())
+                .get("token").asText();
+
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/auth/login")
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"username":"integration-user","password":"integration-password-long-enough"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(true));
+
+        assertNotEquals(previousSessionId, session.getId());
+        mockMvc.perform(get("/api/auth/session").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(true));
+        mockMvc.perform(get("/api/imports/{importId}", UUID.randomUUID()).session(session))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void invalidCredentialsAndMissingCsrfAreRejectedWithoutCredentialDetails() throws Exception {
+        MvcResult csrfResult = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk())
+                .andReturn();
+        MockHttpSession session = (MockHttpSession) csrfResult.getRequest().getSession(false);
+
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/auth/login")
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"username":"integration-user","password":"wrong-password"}
+                                """))
+                .andExpect(status().isForbidden());
+
+        String csrfToken = objectMapper.readTree(csrfResult.getResponse().getContentAsString())
+                .get("token").asText();
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/auth/login")
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"username":"integration-user","password":"wrong-password"}
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("Username or password is incorrect."));
+
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/imports"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void logoutRequiresCsrfInvalidatesTheSessionAndExpiresProtectedAccess() throws Exception {
+        MockHttpSession session = authenticatedSession();
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/auth/logout").session(session))
+                .andExpect(status().isForbidden());
+
+        String csrfToken = csrfToken(session);
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/auth/logout")
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/imports/{importId}", UUID.randomUUID()).session(session))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/auth/session"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(false));
+    }
+
+    @Test
+    void corsPreflightAllowsOnlyTheConfiguredOrigin() throws Exception {
+        mockMvc.perform(options("/api/imports")
+                        .header("Origin", "https://frontend.example.test")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "content-type,x-csrf-token"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://frontend.example.test"))
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
+
+        mockMvc.perform(options("/api/imports")
+                        .header("Origin", "https://untrusted.example.test")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void sessionCookieDefaultsToSecureHttpOnlyAndSameSiteStrict() {
+        assertEquals("true", environment.getProperty("server.servlet.session.cookie.secure"));
+        assertEquals("true", environment.getProperty("server.servlet.session.cookie.http-only"));
+        assertEquals("strict", environment.getProperty("server.servlet.session.cookie.same-site"));
+        assertEquals("30m", environment.getProperty("server.servlet.session.timeout"));
+    }
+
+    private MockHttpSession authenticatedSession() throws Exception {
+        MvcResult csrfResult = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk())
+                .andReturn();
+        MockHttpSession session = (MockHttpSession) csrfResult.getRequest().getSession(false);
+        String csrfToken = objectMapper.readTree(csrfResult.getResponse().getContentAsString())
+                .get("token").asText();
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/auth/login")
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"username":"integration-user","password":"integration-password-long-enough"}
+                                """))
+                .andExpect(status().isOk());
+        return session;
+    }
+
+    private String csrfToken(MockHttpSession session) throws Exception {
+        MvcResult csrfResult = mockMvc.perform(get("/api/auth/csrf").session(session))
+                .andExpect(status().isOk())
+                .andReturn();
+        return objectMapper.readTree(csrfResult.getResponse().getContentAsString())
+                .get("token").asText();
+    }
+
     private ResultActions upload(byte[] content) throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "saved_posts.json",
                 MediaType.APPLICATION_JSON_VALUE,
                 content);
-        return mockMvc.perform(MockMvcRequestBuilders.multipart("/api/imports").file(file));
+        MockHttpSession session = authenticatedSession();
+        String csrfToken = csrfToken(session);
+        return mockMvc.perform(MockMvcRequestBuilders.multipart("/api/imports")
+                .file(file)
+                .session(session)
+                .header("X-CSRF-TOKEN", csrfToken));
     }
 
     private ObjectNode post(String identifier, String url, String metadataValue) {

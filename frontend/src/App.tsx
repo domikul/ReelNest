@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
+import { AuthApiError, getCsrfToken, getSessionStatus, signIn, signOut } from './api/auth'
 import ImportPanel from './components/ImportPanel'
+import SignInForm from './components/SignInForm'
 
 type Theme = 'system' | 'light' | 'dark'
+type AuthState = 'checking' | 'authenticated' | 'anonymous' | 'unavailable'
 
 const themeStorageKey = 'reelnest-theme'
 
@@ -12,11 +15,91 @@ function getInitialTheme(): Theme {
 
 function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const [authState, setAuthState] = useState<AuthState>('checking')
+  const [csrfToken, setCsrfToken] = useState<string | null>(null)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authNotice, setAuthNotice] = useState<string | null>(null)
+  const [authError, setAuthError] = useState<string | null>(null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     window.localStorage.setItem(themeStorageKey, theme)
   }, [theme])
+
+  async function initializeSession() {
+    setAuthState('checking')
+    setAuthError(null)
+    try {
+      const token = await getCsrfToken()
+      const session = await getSessionStatus()
+      setCsrfToken(token)
+      setAuthState(session.authenticated ? 'authenticated' : 'anonymous')
+    } catch (cause) {
+      setCsrfToken(null)
+      setAuthState('unavailable')
+      setAuthError(
+        cause instanceof AuthApiError
+          ? cause.message
+          : 'The sign-in service is unavailable. Please try again.',
+      )
+    }
+  }
+
+  useEffect(() => {
+    void initializeSession()
+  }, [])
+
+  async function handleSignIn(username: string, password: string) {
+    setAuthBusy(true)
+    setAuthError(null)
+    try {
+      const token = csrfToken ?? (await getCsrfToken())
+      await signIn(username, password, token)
+      const nextToken = await getCsrfToken()
+      const session = await getSessionStatus()
+      if (!session.authenticated) {
+        throw new AuthApiError('Sign-in could not be confirmed. Please retry.')
+      }
+      setCsrfToken(nextToken)
+      setAuthState('authenticated')
+      setAuthNotice(null)
+    } catch (cause) {
+      setAuthError(
+        cause instanceof AuthApiError
+          ? cause.message
+          : 'Sign-in could not be completed. Please retry.',
+      )
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function handleSignOut() {
+    setAuthBusy(true)
+    setAuthError(null)
+    try {
+      const token = csrfToken ?? (await getCsrfToken())
+      await signOut(token)
+      setCsrfToken(null)
+      setAuthState('anonymous')
+      setAuthNotice('You have signed out.')
+    } catch (cause) {
+      setAuthError(
+        cause instanceof AuthApiError
+          ? cause.message
+          : 'Sign-out could not be completed. Please retry.',
+      )
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  function handleSessionExpired() {
+    setCsrfToken(null)
+    setAuthState('anonymous')
+    setAuthNotice('Your session expired. Sign in again to continue.')
+    setAuthError(null)
+  }
 
   return (
     <main className="app-shell">
@@ -47,6 +130,16 @@ function App() {
             <option value="dark">Dark</option>
           </select>
         </label>
+        {authState === 'authenticated' && (
+          <button
+            className="sign-out-button"
+            type="button"
+            onClick={() => void handleSignOut()}
+            disabled={authBusy}
+          >
+            {authBusy ? 'Signing out…' : 'Sign out'}
+          </button>
+        )}
       </header>
 
       <section className="welcome" aria-labelledby="welcome-title">
@@ -66,7 +159,40 @@ function App() {
             Start with your Instagram saved-post export. ReelNest will keep the
             source details and show a summary before you continue.
           </p>
-          <ImportPanel />
+          {authState === 'checking' && (
+            <p className="submission-status" role="status">Checking your session…</p>
+          )}
+          {authState === 'authenticated' && csrfToken && (
+            <ImportPanel
+              csrfToken={csrfToken}
+              onSessionExpired={handleSessionExpired}
+            />
+          )}
+          {authState === 'anonymous' && (
+            <SignInForm
+              busy={authBusy}
+              notice={authNotice}
+              error={authError}
+              onSubmit={(username, password) => void handleSignIn(username, password)}
+            />
+          )}
+          {authState === 'unavailable' && (
+            <div className="sign-in-form">
+              <p className="form-error" role="alert">
+                {authError ?? 'The sign-in service is unavailable. Please try again.'}
+              </p>
+              <button
+                className="import-button"
+                type="button"
+                onClick={() => void initializeSession()}
+              >
+                Retry connection
+              </button>
+            </div>
+          )}
+          {authState === 'authenticated' && authError && (
+            <p className="form-error" role="alert">{authError}</p>
+          )}
         </div>
       </section>
 

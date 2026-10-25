@@ -15,9 +15,12 @@ export interface ImportSummary {
 }
 
 export class ImportApiError extends Error {
-  constructor(message: string) {
+  readonly status: number | null
+
+  constructor(message: string, status: number | null = null) {
     super(message)
     this.name = 'ImportApiError'
+    this.status = status
   }
 }
 
@@ -93,7 +96,7 @@ export function describeImportItemError(code: string): string {
   return itemErrorMessages[code] ?? 'This entry could not be imported.'
 }
 
-export async function uploadSavedPosts(file: File): Promise<ImportSummary> {
+export async function uploadSavedPosts(file: File, csrfToken: string): Promise<ImportSummary> {
   const formData = new FormData()
   formData.append('file', file)
 
@@ -101,6 +104,8 @@ export async function uploadSavedPosts(file: File): Promise<ImportSummary> {
   try {
     response = await fetch('/api/imports', {
       method: 'POST',
+      credentials: 'include',
+      headers: { 'X-CSRF-TOKEN': csrfToken },
       body: formData,
     })
   } catch {
@@ -115,8 +120,14 @@ export async function uploadSavedPosts(file: File): Promise<ImportSummary> {
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new ImportApiError('Your session has expired. Sign in again to continue.', 401)
+    }
+    if (response.status === 403) {
+      throw new ImportApiError('Your security session expired. Sign in again to continue.', 403)
+    }
     const detail = isObject(payload) ? payload.detail : undefined
-    throw new ImportApiError(validationMessage(response.status, detail))
+    throw new ImportApiError(validationMessage(response.status, detail), response.status)
   }
 
   if (!isImportSummary(payload)) {

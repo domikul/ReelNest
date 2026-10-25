@@ -1,9 +1,10 @@
 # ReelNest
 
-ReelNest is a personal home for saved Instagram content, designed for
-intentional browsing instead of an endless feed. This repository currently
-contains only the project foundation; the library and other product features
-are planned for later milestones.
+ReelNest is a private home for saved Instagram content, designed for
+intentional browsing instead of an endless feed. The project currently
+includes a secured single-user sign-in, a saved-post export importer, and the
+application foundation; the library and other product features are planned
+for later milestones.
 
 ## Project layout
 
@@ -22,20 +23,39 @@ are planned for later milestones.
 
 1. Start PostgreSQL from the repository root:
 
-   ```sh
+   ```powershell
    docker compose up -d db
    ```
 
-2. In a terminal at the repository root, start the backend:
+2. Configure the single ReelNest user's credentials in the PowerShell session
+   that will run the backend. The password is prompted without echo and is
+   exposed to this session and the child processes it starts:
+
+   ```powershell
+   $env:REELNEST_USERNAME = Read-Host "ReelNest username"
+   $secret = Read-Host "ReelNest password" -AsSecureString
+   $secretPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
+   try {
+     $env:REELNEST_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretPointer)
+   } finally {
+     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretPointer)
+   }
+   ```
+
+   Use a unique password of at least 12 characters. Do not put credentials in
+   source files, command history, or committed configuration.
+
+3. In that same terminal at the repository root, start the backend:
 
    ```sh
    mvn -f backend/pom.xml spring-boot:run
    ```
 
    Spring Boot applies the Flyway migration at startup. The health endpoint is
-   available at <http://localhost:8080/api/health>.
+   available at <http://localhost:8080/api/health>; sign-in is required for
+   imports and other private API requests.
 
-3. In another terminal, start the frontend:
+4. In another terminal, start the frontend:
 
    ```sh
    cd frontend
@@ -44,7 +64,13 @@ are planned for later milestones.
    ```
 
    Open the local URL printed by Vite (usually <http://localhost:5173>). Use
-   the theme selector to choose light, dark, or system appearance.
+   your configured credentials to sign in, then use the theme selector to
+   choose light, dark, or system appearance. Stop the backend, then clear its
+   credential variables from that PowerShell session:
+
+   ```powershell
+   Remove-Item Env:REELNEST_USERNAME, Env:REELNEST_PASSWORD
+   ```
 
 Stop the database with `docker compose down`. Database data is kept in the
 `postgres_data` Docker volume; to remove that local data, run
@@ -89,14 +115,27 @@ deployed environment.
 | `DATABASE_USERNAME` | Backend | `reelnest` | Database user |
 | `DATABASE_PASSWORD` | Backend | `local_dev_password` | Database password |
 | `SERVER_PORT` | Backend | `8080` | Backend HTTP port |
+| `REELNEST_USERNAME` | Backend | Required; no default | The single allowed user's username |
+| `REELNEST_PASSWORD` | Backend | Required; no default | User password; minimum 12 characters |
+| `REELNEST_CORS_ALLOWED_ORIGINS` | Backend | Empty (same-origin only) | Comma-separated exact origins allowed to make credentialed API requests |
+| `REELNEST_SESSION_TIMEOUT` | Backend | `30m` | Server-side session idle timeout |
+| `REELNEST_COOKIE_SECURE` | Backend | `true` | Restricts the session cookie to secure transport |
+| `REELNEST_COOKIE_SAME_SITE` | Backend | `strict` | Session-cookie SameSite policy |
 
-Set backend variables in the environment where the Maven command runs. Set
+Set backend variables in the environment where the Maven command runs. The
+password is required and must be at least 12 characters. Production deployments
+must terminate TLS at the application or a trusted reverse proxy. Set
 Compose variables in that command's environment or in an untracked root `.env`
-file. Keep real credentials out of Git.
+file. In deployment, provide credentials through a secret manager and configure
+only trusted frontend origins; wildcard CORS origins are rejected. The session cookie is HTTP-only, secure by default, and restricted to
+cookie-based session tracking. The local Vite proxy keeps API requests
+same-origin. For a cross-site frontend deployment, use
+`REELNEST_COOKIE_SAME_SITE=none` only with secure transport and retain
+`REELNEST_COOKIE_SECURE=true`.
 
 ## Scope and next milestones
 
-This initialization does not implement Instagram export parsing, library
-management, collections, favorites, search, authentication, viewing, watch
-sessions, or a full application database schema. Those belong to later
-milestones. In particular, no Instagram export data is required or included.
+The current backend importer accepts the observed saved-post export format,
+but does not yet manage the library, collections, favorites, search, viewing,
+watch sessions, or the full application database schema. Those belong to later
+milestones. No personal Instagram export data is required or included in Git.

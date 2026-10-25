@@ -160,6 +160,66 @@ input {
   cursor: pointer;
 }
 
+.sign-out-button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.sign-out-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.sign-in-form {
+  display: grid;
+  width: 100%;
+  gap: 14px;
+  text-align: left;
+}
+
+.sign-in-form > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.sign-in-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.sign-in-form input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.sign-in-form input:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.auth-notice {
+  color: var(--accent);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
 .welcome {
   display: flex;
   flex: 1;
@@ -515,6 +575,12 @@ h1 {
 
   .topnav a {
     font-size: 0.82rem;
+  }
+
+  .sign-out-button {
+    min-height: 36px;
+    padding: 0 9px;
+    font-size: 0.76rem;
   }
 
   .theme-picker {

@@ -38,6 +38,11 @@ async function selectFile(file = savedPostsFile()) {
   return file
 }
 
+function renderImportPanel(onSessionExpired = vi.fn()) {
+  render(<ImportPanel csrfToken="test-csrf-token" onSessionExpired={onSessionExpired} />)
+  return onSessionExpired
+}
+
 describe('Instagram saved-post import flow', () => {
   beforeEach(() => {
     fetchMock.mockReset()
@@ -51,7 +56,7 @@ describe('Instagram saved-post import flow', () => {
 
   it('uploads the selected file and displays all summary counts and safe item errors', async () => {
     fetchMock.mockResolvedValue(jsonResponse(partialSummary))
-    render(<ImportPanel />)
+    renderImportPanel()
 
     const file = await selectFile()
     await userEvent.click(screen.getByRole('button', { name: 'Import saved posts' }))
@@ -73,13 +78,14 @@ describe('Instagram saved-post import flow', () => {
     const [url, options] = fetchMock.mock.calls[0]
     expect(url).toBe('/api/imports')
     expect(options?.method).toBe('POST')
-    expect(options?.headers).toBeUndefined()
+    expect(options?.headers).toEqual({ 'X-CSRF-TOKEN': 'test-csrf-token' })
+    expect(options?.credentials).toBe('include')
     expect(options?.body).toBeInstanceOf(FormData)
     expect((options?.body as FormData).get('file')).toBe(file)
   })
 
   it('rejects a non-JSON file before sending it', async () => {
-    render(<ImportPanel />)
+    renderImportPanel()
 
     await selectFile(savedPostsFile('export.txt'))
 
@@ -91,7 +97,7 @@ describe('Instagram saved-post import flow', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ detail: 'Unexpected response detail.' }, 422),
     )
-    render(<ImportPanel />)
+    renderImportPanel()
 
     await selectFile()
     await userEvent.click(screen.getByRole('button', { name: 'Import saved posts' }))
@@ -111,7 +117,7 @@ describe('Instagram saved-post import flow', () => {
     fetchMock
       .mockRejectedValueOnce(new Error('Untrusted network error text.'))
       .mockReturnValueOnce(pendingResponse)
-    render(<ImportPanel />)
+    renderImportPanel()
 
     const file = await selectFile()
     await userEvent.click(screen.getByRole('button', { name: 'Import saved posts' }))
@@ -145,5 +151,16 @@ describe('Instagram saved-post import flow', () => {
       .toBeInTheDocument()
     expect(screen.queryByText(new RegExp(file.name))).not.toBeInTheDocument()
     expect(screen.queryByText('Untrusted network error text.')).not.toBeInTheDocument()
+  })
+
+  it('hands expired or invalidated sessions back to the sign-in flow', async () => {
+    const onSessionExpired = renderImportPanel()
+    fetchMock.mockResolvedValue(jsonResponse({ detail: 'Private server detail.' }, 401))
+
+    await selectFile()
+    await userEvent.click(screen.getByRole('button', { name: 'Import saved posts' }))
+
+    expect(onSessionExpired).toHaveBeenCalledOnce()
+    expect(screen.queryByText('Private server detail.')).not.toBeInTheDocument()
   })
 })
