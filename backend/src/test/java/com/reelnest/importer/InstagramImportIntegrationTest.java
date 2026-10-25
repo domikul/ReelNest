@@ -21,6 +21,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -68,7 +70,7 @@ class InstagramImportIntegrationTest {
     @BeforeEach
     void clearDatabase() {
         jdbcTemplate.execute(
-                "TRUNCATE TABLE import_jobs, post_categories, categories, collection_posts, collections, "
+                "TRUNCATE TABLE import_jobs, post_view_history, post_categories, categories, collection_posts, collections, "
                         + "post_notes, post_favorites, posts");
     }
 
@@ -124,6 +126,12 @@ class InstagramImportIntegrationTest {
                 "synthetic-id-1");
         setFavorite(postId, true);
         setNote(postId, "synthetic preserved note");
+        recordView(postId);
+        Timestamp preservedViewTime = Timestamp.from(Instant.parse("2026-02-01T00:00:00Z"));
+        jdbcTemplate.update(
+                "UPDATE post_view_history SET last_viewed_at = ? WHERE post_id = ?",
+                preservedViewTime,
+                postId);
         UUID categoryId = createCategory("Synthetic category");
         assignCategory(postId, categoryId);
         UUID collectionId = createCollection("Synthetic collection");
@@ -135,6 +143,7 @@ class InstagramImportIntegrationTest {
                 .andExpect(jsonPath("$.updatedCount").value(0))
                 .andExpect(jsonPath("$.skippedCount").value(1));
         assertEquals(1, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_favorites", Integer.class));
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_view_history", Integer.class));
 
         byte[] changedMetadata = objectMapper.writeValueAsBytes(
                 objectMapper.createArrayNode().add(post(
@@ -172,6 +181,12 @@ class InstagramImportIntegrationTest {
                 jdbcTemplate.queryForObject(
                         "SELECT source_metadata #>> '{1,value}' FROM posts WHERE id = ?",
                         String.class,
+                        postId));
+        assertEquals(
+                preservedViewTime,
+                jdbcTemplate.queryForObject(
+                        "SELECT last_viewed_at FROM post_view_history WHERE post_id = ?",
+                        Timestamp.class,
                         postId));
         mockMvc.perform(get("/api/posts/{postId}", postId).session(authenticatedSession()))
                 .andExpect(status().isOk())
@@ -313,6 +328,13 @@ class InstagramImportIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "https://frontend.example.test"));
 
+        mockMvc.perform(options("/api/posts/synthetic-post-id/view")
+                        .header("Origin", "https://frontend.example.test")
+                        .header("Access-Control-Request-Method", "PUT")
+                        .header("Access-Control-Request-Headers", "x-csrf-token"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://frontend.example.test"));
+
         mockMvc.perform(options("/api/imports")
                         .header("Origin", "https://untrusted.example.test")
                         .header("Access-Control-Request-Method", "POST"))
@@ -421,6 +443,14 @@ class InstagramImportIntegrationTest {
                         .header("X-CSRF-TOKEN", csrfToken(session)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(collectionId.toString()));
+    }
+
+    private void recordView(UUID postId) throws Exception {
+        MockHttpSession session = authenticatedSession();
+        mockMvc.perform(MockMvcRequestBuilders.put("/api/posts/{postId}/view", postId)
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session)))
+                .andExpect(status().isNoContent());
     }
 
     private ResultActions upload(byte[] content) throws Exception {

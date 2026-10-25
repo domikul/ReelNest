@@ -566,6 +566,102 @@ h1 {
   margin: 0 auto 72px;
 }
 
+.recently-watched-section {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 30px;
+}
+
+.recently-watched-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recently-watched-heading .eyebrow {
+  margin-bottom: 6px;
+}
+
+.recently-watched-heading h2 {
+  margin: 0;
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  letter-spacing: -0.04em;
+}
+
+.recently-watched-limit {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.recently-watched-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 225px), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recently-watched-card {
+  display: grid;
+  grid-template-columns: minmax(70px, 0.65fr) minmax(0, 1fr);
+  min-height: 118px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.recently-watched-preview {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.recently-watched-content {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 7px;
+  padding: 12px;
+}
+
+.recently-watched-content h3 {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.recently-watched-content time {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.recently-watched-content .secondary-button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.75rem;
+}
+
+.recently-watched-empty {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.recently-watched-empty p {
+  margin: 0;
+}
+
 .library-heading {
   display: flex;
   align-items: flex-end;
@@ -629,6 +725,11 @@ h1 {
 .library-search-row {
   display: flex;
   gap: 10px;
+}
+
+.recently-watched-heading {
+  align-items: flex-start;
+  flex-direction: column;
 }
 
 .library-search-row input,

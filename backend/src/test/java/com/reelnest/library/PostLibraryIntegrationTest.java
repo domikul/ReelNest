@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -60,7 +61,7 @@ class PostLibraryIntegrationTest {
     @BeforeEach
     void clearDatabase() {
         jdbcTemplate.execute(
-                "TRUNCATE TABLE import_jobs, post_categories, categories, collection_posts, collections, "
+                "TRUNCATE TABLE import_jobs, post_view_history, post_categories, categories, collection_posts, collections, "
                         + "post_notes, post_favorites, posts");
     }
 
@@ -116,6 +117,81 @@ class PostLibraryIntegrationTest {
                 .andExpect(jsonPath("$.items.length()").value(0))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.hasPrevious").value(true));
+    }
+
+    @Test
+    void recordsViewsPersistentlyAndListsRecentlyWatchedInDescendingOrder() throws Exception {
+        UUID oldestView = insertPost(1, "2026-01-01T00:00:00Z");
+        UUID middleView = insertPost(2, "2026-01-02T00:00:00Z");
+        UUID newestView = insertPost(3, "2026-01-03T00:00:00Z");
+        MockHttpSession session = authenticatedSession();
+
+        recordView(session, oldestView).andExpect(status().isNoContent());
+        recordView(session, middleView).andExpect(status().isNoContent());
+        recordView(session, newestView).andExpect(status().isNoContent());
+        Timestamp recordedAt = jdbcTemplate.queryForObject(
+                "SELECT last_viewed_at FROM post_view_history WHERE post_id = ?",
+                Timestamp.class,
+                oldestView);
+        recordView(session, oldestView).andExpect(status().isNoContent());
+        assertEquals(3, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_view_history", Integer.class));
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM post_view_history WHERE post_id = ?",
+                Integer.class,
+                oldestView));
+        Timestamp updatedAt = jdbcTemplate.queryForObject(
+                "SELECT last_viewed_at FROM post_view_history WHERE post_id = ?",
+                Timestamp.class,
+                oldestView);
+        assertFalse(updatedAt.before(recordedAt));
+
+        jdbcTemplate.update(
+                "UPDATE post_view_history SET last_viewed_at = ? WHERE post_id = ?",
+                Timestamp.from(Instant.parse("2026-04-01T00:00:00Z")),
+                oldestView);
+        jdbcTemplate.update(
+                "UPDATE post_view_history SET last_viewed_at = ? WHERE post_id = ?",
+                Timestamp.from(Instant.parse("2026-04-02T00:00:00Z")),
+                middleView);
+        jdbcTemplate.update(
+                "UPDATE post_view_history SET last_viewed_at = ? WHERE post_id = ?",
+                Timestamp.from(Instant.parse("2026-04-03T00:00:00Z")),
+                newestView);
+
+        mockMvc.perform(get("/api/posts/recently-watched")
+                        .param("size", "2")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(newestView.toString()))
+                .andExpect(jsonPath("$[0].lastViewedAt").value("2026-04-03T00:00:00Z"))
+                .andExpect(jsonPath("$[1].id").value(middleView.toString()));
+    }
+
+    @Test
+    void protectsRecentlyWatchedAndViewRecordingAndValidatesLimitsAndPostIds() throws Exception {
+        UUID postId = insertPost(1, "2026-01-01T00:00:00Z");
+        UUID missingPostId = UUID.randomUUID();
+        mockMvc.perform(get("/api/posts/recently-watched"))
+                .andExpect(status().isUnauthorized());
+        MockHttpSession anonymousSession = new MockHttpSession();
+        mockMvc.perform(put("/api/posts/{postId}/view", postId)
+                        .session(anonymousSession)
+                        .header("X-CSRF-TOKEN", csrfToken(anonymousSession)))
+                .andExpect(status().isUnauthorized());
+
+        MockHttpSession session = authenticatedSession();
+        mockMvc.perform(put("/api/posts/{postId}/view", postId).session(session))
+                .andExpect(status().isForbidden());
+        recordView(session, missingPostId).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/posts/recently-watched")
+                        .param("size", "0")
+                        .session(session))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/posts/recently-watched")
+                        .param("size", "21")
+                        .session(session))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -424,6 +500,12 @@ class PostLibraryIntegrationTest {
                 .header("X-CSRF-TOKEN", csrfToken(session))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"favorite\":" + favorite + "}"));
+    }
+
+    private ResultActions recordView(MockHttpSession session, UUID postId) throws Exception {
+        return mockMvc.perform(put("/api/posts/{postId}/view", postId)
+                .session(session)
+                .header("X-CSRF-TOKEN", csrfToken(session)));
     }
 
     private ResultActions setNote(MockHttpSession session, UUID postId, String note) throws Exception {

@@ -112,7 +112,13 @@ search because those fields are not available in the current imported data.
 `{"favorite":false}` to set favorite state idempotently. Current imported
 records provide a saved date and original Instagram URL; captions, creator
 details, post type, and thumbnails are not available in the stored importer
-metadata. Personal notes are separate from imported source metadata: use
+metadata. Record a post-details view with
+`PUT /api/posts/{id}/view` (authenticated session and CSRF token), then list
+up to 20 recently viewed posts with
+`GET /api/posts/recently-watched?size=8`. The history stores the most recent
+view time separately from imported source metadata and can be reused by a
+future viewer; it does not track playback. Personal notes are separate from
+imported source metadata: use
 `GET /api/posts/{id}/notes` to view a note, `PUT /api/posts/{id}/notes` with
 `{"note":"..."}` to create or update it, and `DELETE /api/posts/{id}/notes`
 to remove it. Notes must contain non-whitespace text and may be up to 5,000
@@ -175,8 +181,7 @@ same-origin. For a cross-site frontend deployment, use
 The backend importer accepts the observed saved-post export format, and the
 library currently displays imported saved dates, original post links,
 persistent favorites, personal notes, and user-managed categories.
-User-managed collections are available as well. Search, viewing, watch
-search uses PostgreSQL full-text matching across the persisted fields described
-above. Viewing, watch sessions, and the full application database schema belong
-to later milestones.
+User-managed collections, server-side library search, and recently watched
+history are available as well. The post viewer, watch sessions, and the full
+application database schema belong to later milestones.
 No personal Instagram export data is required or included in Git.

@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LibraryPage, LibraryPost } from '../api/library'
 import {
   getLibraryPage,
   getLibraryPost,
+  getRecentlyWatchedPosts,
   LibraryApiError,
+  recordPostView,
   setLibraryPostFavorite,
 } from '../api/library'
+import type { RecentlyWatchedPost } from '../api/library'
 import { CategoryApiError, getCategories } from '../api/categories'
 import type { Category } from '../api/categories'
 import { CollectionApiError, getCollections } from '../api/collections'
@@ -41,17 +44,126 @@ function SavedDate({ value }: { value: string }) {
   return <time dateTime={value}>Saved {formatSavedDate(value)}</time>
 }
 
+function RecentlyWatchedSection({
+  onOpenPost,
+  onSessionExpired,
+  refreshKey,
+}: {
+  onOpenPost: (postId: string) => void
+  onSessionExpired: () => void
+  refreshKey: number
+}) {
+  const [posts, setPosts] = useState<RecentlyWatchedPost[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError(null)
+
+    getRecentlyWatchedPosts()
+      .then((result) => {
+        if (active) {
+          setPosts(result)
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!active) {
+          return
+        }
+        if (cause instanceof LibraryApiError && (cause.status === 401 || cause.status === 403)) {
+          onSessionExpired()
+          return
+        }
+        setError(
+          cause instanceof LibraryApiError
+            ? cause.message
+            : 'Recently watched posts could not be loaded. Please retry.',
+        )
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [refreshKey, retryCount, onSessionExpired])
+
+  return (
+    <section className="recently-watched-section" aria-labelledby="recently-watched-title">
+      <div className="recently-watched-heading">
+        <div>
+          <p className="eyebrow">Your history</p>
+          <h2 id="recently-watched-title">Recently watched</h2>
+        </div>
+        <p className="recently-watched-limit">Showing up to 8 posts</p>
+      </div>
+      {loading && <p className="library-status" role="status">Loading recently watched…</p>}
+      {error && (
+        <div className="library-error" role="alert">
+          <p>{error}</p>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setRetryCount((value) => value + 1)}
+          >
+            Retry recently watched
+          </button>
+        </div>
+      )}
+      {!loading && !error && posts?.length === 0 && (
+        <div className="recently-watched-empty">
+          <p>No posts watched yet. Open a post’s details to add it to your history.</p>
+        </div>
+      )}
+      {!loading && !error && posts && posts.length > 0 && (
+        <ol className="recently-watched-grid">
+          {posts.map((post) => (
+            <li key={post.id}>
+              <article className="recently-watched-card">
+                <div className="recently-watched-preview" aria-hidden="true">
+                  Preview unavailable
+                </div>
+                <div className="recently-watched-content">
+                  <h3>Instagram post</h3>
+                  <time dateTime={post.lastViewedAt}>
+                    Viewed {formatSavedDate(post.lastViewedAt)}
+                  </time>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => onOpenPost(post.id)}
+                  >
+                    View recently watched post
+                  </button>
+                </div>
+              </article>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  )
+}
+
 function PostDetails({
   postId,
   csrfToken,
   onBack,
   onFavoriteChanged,
+  onViewRecorded,
   onSessionExpired,
 }: {
   postId: string
   csrfToken: string
   onBack: () => void
   onFavoriteChanged: (post: LibraryPost) => void
+  onViewRecorded: () => void
   onSessionExpired: () => void
 }) {
   const [post, setPost] = useState<LibraryPost | null>(null)
@@ -60,6 +172,9 @@ function PostDetails({
   const [retryCount, setRetryCount] = useState(0)
   const [favoriteBusy, setFavoriteBusy] = useState(false)
   const [favoriteError, setFavoriteError] = useState<string | null>(null)
+  const [viewTrackingBusy, setViewTrackingBusy] = useState(true)
+  const [viewTrackingError, setViewTrackingError] = useState<string | null>(null)
+  const [viewRetryCount, setViewRetryCount] = useState(0)
 
   async function handleFavoriteToggle() {
     if (!post || favoriteBusy) {
@@ -122,6 +237,42 @@ function PostDetails({
     }
   }, [postId, retryCount, onSessionExpired])
 
+  useEffect(() => {
+    let active = true
+    setViewTrackingBusy(true)
+    setViewTrackingError(null)
+
+    recordPostView(postId, csrfToken)
+      .then(() => {
+        if (active) {
+          onViewRecorded()
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!active) {
+          return
+        }
+        if (cause instanceof LibraryApiError && (cause.status === 401 || cause.status === 403)) {
+          onSessionExpired()
+          return
+        }
+        setViewTrackingError(
+          cause instanceof LibraryApiError
+            ? cause.message
+            : 'This view could not be added to your history. Please retry.',
+        )
+      })
+      .finally(() => {
+        if (active) {
+          setViewTrackingBusy(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [postId, csrfToken, viewRetryCount, onViewRecorded, onSessionExpired])
+
   return (
     <section className="post-details" aria-labelledby="post-details-title">
       <button className="text-button" type="button" onClick={onBack}>
@@ -133,6 +284,19 @@ function PostDetails({
           <p>{error}</p>
           <button className="secondary-button" type="button" onClick={() => setRetryCount((value) => value + 1)}>
             Retry
+          </button>
+        </div>
+      )}
+      {viewTrackingBusy && <p className="library-status" role="status">Recording this view…</p>}
+      {viewTrackingError && (
+        <div className="library-error" role="alert">
+          <p>{viewTrackingError}</p>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setViewRetryCount((value) => value + 1)}
+          >
+            Retry view tracking
           </button>
         </div>
       )}
@@ -212,6 +376,7 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
   const [categoryFilter, setCategoryFilter] = useState('')
   const [collectionFilter, setCollectionFilter] = useState('')
   const [libraryPage, setLibraryPage] = useState<LibraryPage | null>(null)
+  const [recentlyWatchedRefreshKey, setRecentlyWatchedRefreshKey] = useState(0)
   const [categories, setCategories] = useState<Category[]>([])
   const [collections, setCollections] = useState<UserCollection[]>([])
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
@@ -228,6 +393,9 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
     favoriteFilter !== 'all' ||
     categoryFilter.length > 0 ||
     collectionFilter.length > 0
+  const handleViewRecorded = useCallback(() => {
+    setRecentlyWatchedRefreshKey((value) => value + 1)
+  }, [])
 
   function handleFavoriteChanged(updatedPost: LibraryPost) {
     setLibraryPage((currentPage) =>
@@ -343,12 +511,20 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
               : 'library-title'
       }
     >
+      {!selectedPostId && !managingCategories && !managingCollections && (
+        <RecentlyWatchedSection
+          onOpenPost={setSelectedPostId}
+          onSessionExpired={onSessionExpired}
+          refreshKey={recentlyWatchedRefreshKey}
+        />
+      )}
       {selectedPostId ? (
         <PostDetails
           postId={selectedPostId}
           csrfToken={csrfToken}
           onBack={() => setSelectedPostId(null)}
           onFavoriteChanged={handleFavoriteChanged}
+          onViewRecorded={handleViewRecorded}
           onSessionExpired={onSessionExpired}
         />
       ) : managingCategories ? (

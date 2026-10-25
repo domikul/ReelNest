@@ -107,6 +107,33 @@ public class PostLibraryService {
         return posts.stream().findFirst();
     }
 
+    public boolean recordView(UUID id) {
+        return jdbcTemplate.update(
+                "INSERT INTO post_view_history (post_id) "
+                        + "SELECT id FROM posts WHERE id = ? "
+                        + "ON CONFLICT (post_id) DO UPDATE "
+                        + "SET last_viewed_at = GREATEST("
+                        + "post_view_history.last_viewed_at, EXCLUDED.last_viewed_at)",
+                id) > 0;
+    }
+
+    public List<RecentlyWatchedPostDto> findRecentlyWatched(int size) {
+        return List.copyOf(jdbcTemplate.query(
+                "SELECT p.id, p.original_url, p.saved_at, "
+                        + "f.post_id IS NOT NULL AS favorite, v.last_viewed_at "
+                        + "FROM post_view_history v "
+                        + "JOIN posts p ON p.id = v.post_id "
+                        + "LEFT JOIN post_favorites f ON f.post_id = p.id "
+                        + "ORDER BY v.last_viewed_at DESC, p.id DESC LIMIT ?",
+                (resultSet, rowNumber) -> new RecentlyWatchedPostDto(
+                        resultSet.getObject("id", UUID.class),
+                        resultSet.getString("original_url"),
+                        resultSet.getTimestamp("saved_at").toInstant(),
+                        resultSet.getBoolean("favorite"),
+                        resultSet.getTimestamp("last_viewed_at").toInstant()),
+                size));
+    }
+
     public Optional<PostDto> setFavorite(UUID id, boolean favorite) {
         if (favorite) {
             jdbcTemplate.update(

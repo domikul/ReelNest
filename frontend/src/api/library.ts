@@ -5,6 +5,10 @@ export interface LibraryPost {
   favorite: boolean
 }
 
+export interface RecentlyWatchedPost extends LibraryPost {
+  lastViewedAt: string
+}
+
 export interface LibraryPostNote {
   postId: string
   note: string | null
@@ -71,6 +75,15 @@ function isLibraryPost(value: unknown): value is LibraryPost {
     typeof value.savedAt === 'string' &&
     Number.isFinite(Date.parse(value.savedAt)) &&
     typeof value.favorite === 'boolean'
+  )
+}
+
+function isRecentlyWatchedPost(value: unknown): value is RecentlyWatchedPost {
+  return (
+    isLibraryPost(value) &&
+    isObject(value) &&
+    typeof value.lastViewedAt === 'string' &&
+    Number.isFinite(Date.parse(value.lastViewedAt))
   )
 }
 
@@ -159,6 +172,27 @@ export async function getLibraryPost(postId: string): Promise<LibraryPost> {
     throw new LibraryApiError('The server returned unexpected post details.')
   }
   return payload
+}
+
+export async function getRecentlyWatchedPosts(size = 8): Promise<RecentlyWatchedPost[]> {
+  if (!Number.isSafeInteger(size) || size < 1 || size > 20) {
+    throw new LibraryApiError('Recently watched size must be between 1 and 20.', 400)
+  }
+  const payload = await getJson(`/api/posts/recently-watched?size=${size}`)
+  if (!Array.isArray(payload) || payload.length > size || !payload.every(isRecentlyWatchedPost)) {
+    throw new LibraryApiError('The server returned an unexpected recently watched response.')
+  }
+  return payload
+}
+
+export async function recordPostView(postId: string, csrfToken: string): Promise<void> {
+  const payload = await getJson(`/api/posts/${encodeURIComponent(postId)}/view`, {
+    method: 'PUT',
+    headers: { 'X-CSRF-TOKEN': csrfToken },
+  })
+  if (payload !== null) {
+    throw new LibraryApiError('The server returned an unexpected view response.')
+  }
 }
 
 export async function setLibraryPostFavorite(

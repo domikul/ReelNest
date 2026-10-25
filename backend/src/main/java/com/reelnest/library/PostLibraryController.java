@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -20,6 +21,8 @@ public class PostLibraryController {
 
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int DEFAULT_RECENTLY_WATCHED_SIZE = 8;
+    private static final int MAX_RECENTLY_WATCHED_SIZE = 20;
     private static final int MAX_NOTE_LENGTH = 5000;
     private static final int MAX_SEARCH_LENGTH = 200;
 
@@ -54,11 +57,30 @@ public class PostLibraryController {
                 collectionId);
     }
 
+    @GetMapping("/recently-watched")
+    public List<RecentlyWatchedPostDto> listRecentlyWatched(
+            @RequestParam(defaultValue = "" + DEFAULT_RECENTLY_WATCHED_SIZE) int size) {
+        if (size < 1 || size > MAX_RECENTLY_WATCHED_SIZE) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Recently watched size must be between 1 and " + MAX_RECENTLY_WATCHED_SIZE + ".");
+        }
+        return postLibraryService.findRecentlyWatched(size);
+    }
+
     @GetMapping("/{postId}")
     public ResponseEntity<PostDto> getPost(@PathVariable UUID postId) {
         return postLibraryService.findPost(postId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/{postId}/view")
+    public ResponseEntity<Void> recordView(@PathVariable UUID postId) {
+        if (!postLibraryService.recordView(postId)) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{postId}/favorite")

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import LibraryView from './LibraryView'
@@ -24,6 +24,10 @@ function jsonResponse(payload: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+function noContentResponse(): Response {
+  return new Response(null, { status: 204 })
 }
 
 function libraryPage(
@@ -214,8 +218,14 @@ describe('protected paginated library', () => {
   it('shows post details, a safe original link, and unavailable-metadata fallbacks', async () => {
     fetchMock.mockImplementation(async (input) => {
       const path = String(input)
+      if (path.startsWith('/api/posts/recently-watched')) {
+        return jsonResponse([])
+      }
       if (path.startsWith('/api/posts?')) {
         return jsonResponse(libraryPage([firstPost]))
+      }
+      if (path.endsWith('/view')) {
+        return noContentResponse()
       }
       if (path.endsWith('/notes')) {
         return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
@@ -255,6 +265,9 @@ describe('protected paginated library', () => {
       if (path.startsWith('/api/posts?')) {
         return jsonResponse(libraryPage([{ ...firstPost, favorite }]))
       }
+      if (path.startsWith('/api/posts/recently-watched')) {
+        return jsonResponse([])
+      }
       if (path.endsWith('/favorite')) {
         favorite = JSON.parse(String(options?.body)).favorite
         return jsonResponse({ ...firstPost, favorite })
@@ -267,6 +280,9 @@ describe('protected paginated library', () => {
       }
       if (path.endsWith('/collections')) {
         return jsonResponse([])
+      }
+      if (path.endsWith('/view')) {
+        return noContentResponse()
       }
       return jsonResponse({ ...firstPost, favorite })
     })
@@ -306,12 +322,18 @@ describe('protected paginated library', () => {
 
   it('keeps the previous favorite state and allows retry when saving fails', async () => {
     fetchMock.mockImplementation(async (_input, options) => {
-      if (options?.method === 'PUT') {
+      const path = String(_input)
+      if (path.endsWith('/favorite') && options?.method === 'PUT') {
         return jsonResponse({ detail: 'Sensitive persistence failure.' }, 503)
       }
-      const path = String(_input)
+      if (path.startsWith('/api/posts/recently-watched')) {
+        return jsonResponse([])
+      }
       if (path.startsWith('/api/posts?')) {
         return jsonResponse(libraryPage([firstPost]))
+      }
+      if (path.endsWith('/view')) {
+        return noContentResponse()
       }
       if (path.endsWith('/notes')) {
         return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
@@ -339,14 +361,151 @@ describe('protected paginated library', () => {
   })
 
   it('shows an empty-library state and offers the import flow', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(libraryPage([])))
+    fetchMock.mockImplementation(async (input) =>
+      String(input).startsWith('/api/posts?')
+        ? jsonResponse(libraryPage([]))
+        : jsonResponse([]),
+    )
     const user = userEvent.setup()
     const { onOpenImport } = renderLibrary()
 
     expect(await screen.findByRole('heading', { name: 'Your library is empty' }))
       .toBeInTheDocument()
+    expect(screen.getByText(/No posts watched yet/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Import saved posts' }))
     expect(onOpenImport).toHaveBeenCalledOnce()
+  })
+
+  it('renders recently watched posts in the server-provided order', async () => {
+    const newest = {
+      ...secondPost,
+      lastViewedAt: '2026-04-03T00:00:00Z',
+    }
+    const older = {
+      ...firstPost,
+      lastViewedAt: '2026-04-01T00:00:00Z',
+    }
+    fetchMock.mockImplementation(async (input) =>
+      String(input).startsWith('/api/posts/recently-watched')
+        ? jsonResponse([newest, older])
+        : String(input).startsWith('/api/posts?')
+          ? jsonResponse(libraryPage([]))
+          : jsonResponse([]),
+    )
+    renderLibrary()
+
+    const recentSection = await screen.findByRole('region', { name: 'Recently watched' })
+    const viewedTimes = Array.from(recentSection.querySelectorAll('time'))
+      .map((time) => time.getAttribute('datetime'))
+    expect(viewedTimes).toEqual([newest.lastViewedAt, older.lastViewedAt])
+    expect(within(recentSection).getAllByRole('button', {
+      name: 'View recently watched post',
+    })).toHaveLength(2)
+  })
+
+  it('records a view when details open and refreshes Recently Watched on return', async () => {
+    let watchedPosts: Array<typeof firstPost & { lastViewedAt: string }> = []
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts/recently-watched')) {
+        return jsonResponse(watchedPosts)
+      }
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([firstPost]))
+      }
+      if (path.endsWith('/view')) {
+        watchedPosts = [{ ...firstPost, lastViewedAt: '2026-04-04T00:00:00Z' }]
+        return noContentResponse()
+      }
+      if (path.endsWith('/notes')) {
+        return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
+      }
+      if (path.endsWith('/categories') || path.endsWith('/collections')) {
+        return jsonResponse([])
+      }
+      return jsonResponse(firstPost)
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await user.click(await screen.findByRole('button', { name: 'View post details' }))
+    expect(await screen.findByRole('heading', { name: 'Instagram post' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/posts/${firstPost.id}/view`,
+      expect.objectContaining({
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'X-CSRF-TOKEN': 'synthetic-csrf-token' },
+      }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Back to library' }))
+    expect(await screen.findByRole('button', { name: 'View recently watched post' }))
+      .toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith('/api/posts/recently-watched'),
+    )).toHaveLength(2)
+  })
+
+  it('shows a safe view-tracking error and retries the operation', async () => {
+    let viewAttempts = 0
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts/recently-watched')) {
+        return jsonResponse([])
+      }
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([firstPost]))
+      }
+      if (path.endsWith('/view')) {
+        viewAttempts += 1
+        return viewAttempts === 1
+          ? jsonResponse({ detail: 'Sensitive view failure.' }, 503)
+          : noContentResponse()
+      }
+      if (path.endsWith('/notes')) {
+        return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
+      }
+      if (path.endsWith('/categories') || path.endsWith('/collections')) {
+        return jsonResponse([])
+      }
+      return jsonResponse(firstPost)
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await user.click(await screen.findByRole('button', { name: 'View post details' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The library service is unavailable. Please try again.',
+    )
+    expect(screen.queryByText('Sensitive view failure.')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Retry view tracking' }))
+
+    await waitFor(() => expect(viewAttempts).toBe(2))
+    expect(screen.queryByRole('button', { name: 'Retry view tracking' })).not.toBeInTheDocument()
+  })
+
+  it('allows retrying a failed Recently Watched request', async () => {
+    let recentAttempts = 0
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts/recently-watched')) {
+        recentAttempts += 1
+        return recentAttempts === 1
+          ? jsonResponse({ detail: 'Sensitive history failure.' }, 503)
+          : jsonResponse([])
+      }
+      return path.startsWith('/api/posts?') ? jsonResponse(libraryPage([])) : jsonResponse([])
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The library service is unavailable. Please try again.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Retry recently watched' }))
+    expect(await screen.findByText(/No posts watched yet/)).toBeInTheDocument()
+    expect(recentAttempts).toBe(2)
   })
 
   it('opens the category manager from the library and returns to saved posts', async () => {
