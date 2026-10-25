@@ -68,8 +68,11 @@ npm test
 npm run build
 ```
 
-The backend health controller test does not require a running database. The
-application itself uses PostgreSQL for Flyway startup.
+Backend tests include PostgreSQL integration coverage. Start the database with
+`docker compose up -d db` before running `mvn -f backend/pom.xml test`. The
+integration tests use a separate `reelnest_import_test` schema and do not
+truncate the development schema. Set `REELNEST_TEST_DATABASE_URL` to use a
+different test database URL.
 
 ## Environment variables
 
