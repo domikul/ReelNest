@@ -102,6 +102,11 @@ integration tests use separate `reelnest_import_test` and
 
 The protected library API uses `GET /api/posts?page=0&size=20` for
 server-side pagination (page numbering starts at zero; page sizes are 1–100),
+and supports `q`, `favorite=true|false`, `categoryId`, and `collectionId`
+query parameters for server-side search and filtering. Search covers the
+persisted original URL, imported source metadata, personal notes, and assigned
+category names; it does not provide captions, creator details, or post-type
+search because those fields are not available in the current imported data.
 `GET /api/posts/{id}` for details, and
 `PUT /api/posts/{id}/favorite` with `{"favorite":true}` or
 `{"favorite":false}` to set favorite state idempotently. Current imported
@@ -171,5 +176,7 @@ The backend importer accepts the observed saved-post export format, and the
 library currently displays imported saved dates, original post links,
 persistent favorites, personal notes, and user-managed categories.
 User-managed collections are available as well. Search, viewing, watch
-sessions, and the full application database schema belong to later milestones.
+search uses PostgreSQL full-text matching across the persisted fields described
+above. Viewing, watch sessions, and the full application database schema belong
+to later milestones.
 No personal Instagram export data is required or included in Git.

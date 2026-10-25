@@ -23,6 +23,13 @@ export interface LibraryPage {
   hasPrevious: boolean
 }
 
+export interface LibrarySearchOptions {
+  query?: string
+  favorite?: boolean
+  categoryId?: string
+  collectionId?: string
+}
+
 export class LibraryApiError extends Error {
   readonly status: number | null
 
@@ -121,8 +128,25 @@ async function getJson(path: string, options?: RequestInit): Promise<unknown> {
   }
 }
 
-export async function getLibraryPage(page: number, size = 20): Promise<LibraryPage> {
-  const payload = await getJson(`/api/posts?page=${page}&size=${size}`)
+export async function getLibraryPage(
+  page: number,
+  size = 20,
+  options: LibrarySearchOptions = {},
+): Promise<LibraryPage> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (options.query) {
+    params.set('q', options.query)
+  }
+  if (options.favorite !== undefined) {
+    params.set('favorite', String(options.favorite))
+  }
+  if (options.categoryId) {
+    params.set('categoryId', options.categoryId)
+  }
+  if (options.collectionId) {
+    params.set('collectionId', options.collectionId)
+  }
+  const payload = await getJson(`/api/posts?${params.toString()}`)
   if (!isLibraryPage(payload, page, size)) {
     throw new LibraryApiError('The server returned an unexpected library response.')
   }

@@ -68,9 +68,12 @@ describe('protected paginated library', () => {
   it('requests the next page from the server', async () => {
     fetchMock.mockImplementation(async (input) => {
       const path = String(input)
-      return path.includes('page=1')
-        ? jsonResponse(libraryPage([secondPost], 1, 2, 2))
-        : jsonResponse(libraryPage([firstPost], 0, 2, 2))
+      if (path.startsWith('/api/posts?')) {
+        return path.includes('page=1')
+          ? jsonResponse(libraryPage([secondPost], 1, 2, 2))
+          : jsonResponse(libraryPage([firstPost], 0, 2, 2))
+      }
+      return jsonResponse([])
     })
     const user = userEvent.setup()
     renderLibrary()
@@ -81,10 +84,131 @@ describe('protected paginated library', () => {
 
     expect(await screen.findByText('Page 2 of 2')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'View post details' })).toBeInTheDocument()
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+    expect(fetchMock.mock.calls.map(([url]) => String(url)).filter((path) => path.startsWith('/api/posts?'))).toEqual([
       '/api/posts?page=0&size=20',
       '/api/posts?page=1&size=20',
     ])
+  })
+
+  it('searches and filters on the server using the current query and filter values', async () => {
+    const categoryId = '00000000-0000-0000-0000-000000000010'
+    const collectionId = '00000000-0000-0000-0000-000000000020'
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([secondPost]))
+      }
+      if (path === '/api/categories') {
+        return jsonResponse([{
+          id: categoryId,
+          name: 'Synthetic category',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        }])
+      }
+      if (path === '/api/collections') {
+        return jsonResponse([{
+          id: collectionId,
+          name: 'Synthetic collection',
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+          postCount: 1,
+        }])
+      }
+      return jsonResponse([])
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await screen.findByRole('button', { name: 'View post details' })
+    await user.type(screen.getByRole('searchbox', { name: 'Search saved posts' }), 'wildflower')
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.selectOptions(screen.getByLabelText('Favorite status'), 'favorites')
+    await user.selectOptions(screen.getByLabelText('Category'), categoryId)
+    await user.selectOptions(screen.getByLabelText('Collection'), collectionId)
+
+    const postRequests = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((path) => path.startsWith('/api/posts?'))
+    const params = new URL(
+      `http://localhost${postRequests[postRequests.length - 1] ?? ''}`,
+    ).searchParams
+    expect(params.get('q')).toBe('wildflower')
+    expect(params.get('favorite')).toBe('true')
+    expect(params.get('categoryId')).toBe(categoryId)
+    expect(params.get('collectionId')).toBe(collectionId)
+    expect(params.get('page')).toBe('0')
+    expect(await screen.findByRole('button', { name: 'Clear search and filters' }))
+      .toBeInTheDocument()
+  })
+
+  it('preserves the active search when requesting another server page', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts?')) {
+        const params = new URL(`http://localhost${path}`).searchParams
+        return params.get('page') === '1'
+          ? jsonResponse(libraryPage([secondPost], 1, 21, 2))
+          : jsonResponse(libraryPage([firstPost], 0, 21, 2))
+      }
+      return jsonResponse([])
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await screen.findByRole('button', { name: 'View post details' })
+    await user.type(screen.getByRole('searchbox', { name: 'Search saved posts' }), 'shoreline')
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.click(await screen.findByRole('button', { name: 'Next' }))
+
+    expect(await screen.findByText('Page 2 of 2')).toBeInTheDocument()
+    const postRequests = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((path) => path.startsWith('/api/posts?'))
+    const params = new URL(
+      `http://localhost${postRequests[postRequests.length - 1] ?? ''}`,
+    ).searchParams
+    expect(params.get('q')).toBe('shoreline')
+    expect(params.get('page')).toBe('1')
+  })
+
+  it('distinguishes an empty search from an empty library and clears it', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([]))
+      }
+      return jsonResponse([])
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search saved posts' }), 'missing')
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+
+    expect(await screen.findByRole('heading', { name: 'No matching posts' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Your library is empty' })).not.toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: 'Clear search and filters' })[0])
+    expect(await screen.findByRole('heading', { name: 'Your library is empty' })).toBeInTheDocument()
+  })
+
+  it('shows a safe validation error without submitting a punctuation-only search', async () => {
+    fetchMock.mockImplementation(async (input) =>
+      String(input).startsWith('/api/posts?')
+        ? jsonResponse(libraryPage([]))
+        : jsonResponse([]),
+    )
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search saved posts' }), '!!!')
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Search must include letters or numbers',
+    )
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/posts?')))
+      .toHaveLength(1)
   })
 
   it('shows post details, a safe original link, and unavailable-metadata fallbacks', async () => {
@@ -256,10 +380,18 @@ describe('protected paginated library', () => {
   })
 
   it('shows an out-of-range no-results state with a route back to page one', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse(libraryPage([firstPost], 0, 21, 2)))
-      .mockResolvedValueOnce(jsonResponse(libraryPage([], 1, 21, 2)))
-      .mockResolvedValueOnce(jsonResponse(libraryPage([firstPost], 0, 21, 2)))
+    let pageRequest = 0
+    const pages = [
+      libraryPage([firstPost], 0, 21, 2),
+      libraryPage([], 1, 21, 2),
+      libraryPage([firstPost], 0, 21, 2),
+    ]
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).startsWith('/api/posts?')) {
+        return jsonResponse(pages[pageRequest++])
+      }
+      return jsonResponse([])
+    })
     const user = userEvent.setup()
     renderLibrary()
     await user.click(await screen.findByRole('button', { name: 'Next' }))
@@ -267,7 +399,7 @@ describe('protected paginated library', () => {
 
     await user.click(screen.getByRole('button', { name: 'Return to the first page' }))
     expect(await screen.findByRole('button', { name: 'View post details' })).toBeInTheDocument()
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+    expect(fetchMock.mock.calls.map(([url]) => String(url)).filter((path) => path.startsWith('/api/posts?'))).toEqual([
       '/api/posts?page=0&size=20',
       '/api/posts?page=1&size=20',
       '/api/posts?page=0&size=20',
@@ -275,9 +407,17 @@ describe('protected paginated library', () => {
   })
 
   it('reports safe load errors and allows retrying', async () => {
-    fetchMock
-      .mockRejectedValueOnce(new Error('Synthetic private response text.'))
-      .mockResolvedValueOnce(jsonResponse(libraryPage([firstPost])))
+    let firstPageRequest = true
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).startsWith('/api/posts?')) {
+        if (firstPageRequest) {
+          firstPageRequest = false
+          throw new Error('Synthetic private response text.')
+        }
+        return jsonResponse(libraryPage([firstPost]))
+      }
+      return jsonResponse([])
+    })
     const user = userEvent.setup()
     renderLibrary()
 
@@ -290,8 +430,10 @@ describe('protected paginated library', () => {
   })
 
   it('returns to sign-in when the protected API reports an expired session', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({ detail: 'Sensitive backend response.' }, 401),
+    fetchMock.mockImplementation(async (input) =>
+      String(input).startsWith('/api/posts?')
+        ? jsonResponse({ detail: 'Sensitive backend response.' }, 401)
+        : jsonResponse([]),
     )
     const { onSessionExpired } = renderLibrary()
 
@@ -301,12 +443,17 @@ describe('protected paginated library', () => {
   })
 
   it('rejects an unsafe URL from an unexpected API response', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(libraryPage([
-      { ...firstPost, originalUrl: 'javascript:alert(1)' },
-    ])))
+    fetchMock.mockImplementation(async (input) =>
+      String(input).startsWith('/api/posts?')
+        ? jsonResponse(libraryPage([
+            { ...firstPost, originalUrl: 'javascript:alert(1)' },
+          ]))
+        : jsonResponse([]),
+    )
     renderLibrary()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    expect(await screen.findByText('The server returned an unexpected library response.')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(
       'The server returned an unexpected library response.',
     )
     expect(screen.queryByRole('link')).not.toBeInTheDocument()

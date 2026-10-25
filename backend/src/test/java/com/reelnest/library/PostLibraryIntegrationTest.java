@@ -119,6 +119,98 @@ class PostLibraryIntegrationTest {
     }
 
     @Test
+    void searchesSourceMetadataNotesAndCategoriesAndCombinesFiltersWithPagination() throws Exception {
+        UUID sourceMatch = insertPost(1, "2026-01-01T00:00:00Z");
+        UUID noteMatch = insertPost(2, "2026-01-02T00:00:00Z");
+        UUID categorizedMatch = insertPost(3, "2026-01-03T00:00:00Z");
+        jdbcTemplate.update(
+                "UPDATE posts SET source_metadata = ?::jsonb WHERE id = ?",
+                "[{\"label\":\"saved_post\",\"value\":\"waterfall\"}]",
+                sourceMatch);
+        jdbcTemplate.update(
+                "INSERT INTO post_notes (post_id, note) VALUES (?, ?)",
+                noteMatch,
+                "wildflower");
+        UUID categoryId = UUID.randomUUID();
+        jdbcTemplate.update("INSERT INTO categories (id, name) VALUES (?, ?)", categoryId, "cliffside");
+        jdbcTemplate.update(
+                "INSERT INTO post_categories (post_id, category_id) VALUES (?, ?)",
+                categorizedMatch,
+                categoryId);
+        UUID collectionId = UUID.randomUUID();
+        jdbcTemplate.update("INSERT INTO collections (id, name) VALUES (?, ?)", collectionId, "outdoors");
+        jdbcTemplate.update(
+                "INSERT INTO collection_posts (collection_id, post_id) VALUES (?, ?)",
+                collectionId,
+                categorizedMatch);
+        jdbcTemplate.update("INSERT INTO post_favorites (post_id) VALUES (?)", categorizedMatch);
+        MockHttpSession session = authenticatedSession();
+
+        mockMvc.perform(get("/api/posts").param("q", "waterfall").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(sourceMatch.toString()))
+                .andExpect(jsonPath("$.totalElements").value(1));
+        mockMvc.perform(get("/api/posts").param("q", "wildflower").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(noteMatch.toString()));
+        mockMvc.perform(get("/api/posts").param("q", "cliffside").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(categorizedMatch.toString()));
+        mockMvc.perform(get("/api/posts")
+                        .param("favorite", "false")
+                        .param("size", "1")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.items[0].id").value(noteMatch.toString()));
+        mockMvc.perform(get("/api/posts")
+                        .param("categoryId", categoryId.toString())
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(categorizedMatch.toString()));
+        mockMvc.perform(get("/api/posts")
+                        .param("collectionId", collectionId.toString())
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(categorizedMatch.toString()));
+        mockMvc.perform(get("/api/posts")
+                        .param("q", "cliffside")
+                        .param("favorite", "true")
+                        .param("categoryId", categoryId.toString())
+                        .param("collectionId", collectionId.toString())
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(categorizedMatch.toString()));
+        mockMvc.perform(get("/api/posts").param("q", "unmatchedtoken").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
+    }
+
+    @Test
+    void validatesSearchAndFilterParametersAndRequiresAuthentication() throws Exception {
+        MockHttpSession session = authenticatedSession();
+
+        mockMvc.perform(get("/api/posts").param("q", "!!!").session(session))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/posts").param("q", "a".repeat(201)).session(session))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/posts").param("favorite", "sometimes").session(session))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/posts").param("categoryId", "invalid-uuid").session(session))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/posts").param("q", "waterfall"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void returnsPostDetailsAndNotFoundForUnknownPosts() throws Exception {
         UUID postId = insertPost(1, "2026-02-12T10:15:30Z");
         MockHttpSession session = authenticatedSession();

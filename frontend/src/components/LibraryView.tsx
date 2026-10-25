@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { LibraryPage, LibraryPost } from '../api/library'
 import {
   getLibraryPage,
@@ -6,6 +6,10 @@ import {
   LibraryApiError,
   setLibraryPostFavorite,
 } from '../api/library'
+import { CategoryApiError, getCategories } from '../api/categories'
+import type { Category } from '../api/categories'
+import { CollectionApiError, getCollections } from '../api/collections'
+import type { UserCollection } from '../api/collections'
 import FavoriteButton from './FavoriteButton'
 import PostNoteEditor from './PostNoteEditor'
 import CategoryManager from './CategoryManager'
@@ -14,6 +18,14 @@ import CollectionManager from './CollectionManager'
 import PostCollectionEditor from './PostCollectionEditor'
 
 const pageSize = 20
+
+function isValidSearchQuery(value: string): boolean {
+  return (
+    value.length <= 200 &&
+    !/[\u0000-\u001f\u007f-\u009f]/.test(value) &&
+    /[\p{L}\p{N}]/u.test(value)
+  )
+}
 
 interface LibraryViewProps {
   csrfToken: string
@@ -193,13 +205,29 @@ function PostDetails({
 
 function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewProps) {
   const [page, setPage] = useState(0)
+  const [searchInput, setSearchInput] = useState('')
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [favoriteFilter, setFavoriteFilter] = useState<'all' | 'favorites' | 'not-favorites'>('all')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [collectionFilter, setCollectionFilter] = useState('')
   const [libraryPage, setLibraryPage] = useState<LibraryPage | null>(null)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [collections, setCollections] = useState<UserCollection[]>([])
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
   const [managingCategories, setManagingCategories] = useState(false)
   const [managingCollections, setManagingCollections] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
+  const [filterOptionsError, setFilterOptionsError] = useState<string | null>(null)
+  const [filterOptionsRetryCount, setFilterOptionsRetryCount] = useState(0)
+  const sessionExpiredHandled = useRef(false)
+  const hasActiveFilters =
+    query.length > 0 ||
+    favoriteFilter !== 'all' ||
+    categoryFilter.length > 0 ||
+    collectionFilter.length > 0
 
   function handleFavoriteChanged(updatedPost: LibraryPost) {
     setLibraryPage((currentPage) =>
@@ -219,7 +247,12 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
     setLoading(true)
     setError(null)
 
-    getLibraryPage(page, pageSize)
+    getLibraryPage(page, pageSize, {
+      query: query || undefined,
+      favorite: favoriteFilter === 'all' ? undefined : favoriteFilter === 'favorites',
+      categoryId: categoryFilter || undefined,
+      collectionId: collectionFilter || undefined,
+    })
       .then((result) => {
         if (active) {
           setLibraryPage(result)
@@ -230,7 +263,10 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
           return
         }
         if (cause instanceof LibraryApiError && cause.status === 401) {
-          onSessionExpired()
+          if (!sessionExpiredHandled.current) {
+            sessionExpiredHandled.current = true
+            onSessionExpired()
+          }
           return
         }
         setError(
@@ -248,7 +284,50 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
     return () => {
       active = false
     }
-  }, [page, retryCount, onSessionExpired])
+  }, [
+    page,
+    query,
+    favoriteFilter,
+    categoryFilter,
+    collectionFilter,
+    retryCount,
+    onSessionExpired,
+  ])
+
+  useEffect(() => {
+    let active = true
+    setFilterOptionsError(null)
+
+    Promise.all([getCategories(), getCollections()])
+      .then(([categoryList, collectionList]) => {
+        if (active) {
+          setCategories(categoryList)
+          setCollections(collectionList)
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!active) {
+          return
+        }
+        if (
+          (cause instanceof CategoryApiError || cause instanceof CollectionApiError) &&
+          (cause.status === 401 || cause.status === 403)
+        ) {
+          if (!sessionExpiredHandled.current) {
+            sessionExpiredHandled.current = true
+            onSessionExpired()
+          }
+          return
+        }
+        setFilterOptionsError(
+          'Search filters could not be loaded. Retry to use category and collection filters.',
+        )
+      })
+
+    return () => {
+      active = false
+    }
+  }, [filterOptionsRetryCount, onSessionExpired])
 
   return (
     <section
@@ -315,6 +394,123 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
             </div>
           </div>
 
+          <div className="library-search">
+            <form
+              className="library-search-form"
+              role="search"
+              onSubmit={(event) => {
+                event.preventDefault()
+                const normalizedQuery = searchInput.trim()
+                if (normalizedQuery && !isValidSearchQuery(normalizedQuery)) {
+                  setSearchError(
+                    'Search must include letters or numbers, contain no control characters, '
+                      + 'and be no longer than 200 characters.',
+                  )
+                  return
+                }
+                setSearchError(null)
+                setPage(0)
+                setQuery(normalizedQuery)
+              }}
+            >
+              <label htmlFor="library-search-input">Search saved posts</label>
+              <div className="library-search-row">
+                <input
+                  id="library-search-input"
+                  type="search"
+                  maxLength={200}
+                  value={searchInput}
+                  onChange={(event) => {
+                    setSearchInput(event.target.value)
+                    setSearchError(null)
+                  }}
+                />
+                <button className="import-button" type="submit">Search</button>
+              </div>
+              {searchError && <p className="search-error" role="alert">{searchError}</p>}
+            </form>
+            <div className="library-filter-controls">
+              <label>
+                Favorite status
+                <select
+                  value={favoriteFilter}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    if (value !== 'all' && value !== 'favorites' && value !== 'not-favorites') {
+                      return
+                    }
+                    setPage(0)
+                    setFavoriteFilter(value)
+                  }}
+                >
+                  <option value="all">All posts</option>
+                  <option value="favorites">Favorites</option>
+                  <option value="not-favorites">Not favorites</option>
+                </select>
+              </label>
+              <label>
+                Category
+                <select
+                  value={categoryFilter}
+                  onChange={(event) => {
+                    setPage(0)
+                    setCategoryFilter(event.target.value)
+                  }}
+                  disabled={Boolean(filterOptionsError)}
+                >
+                  <option value="">All categories</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Collection
+                <select
+                  value={collectionFilter}
+                  onChange={(event) => {
+                    setPage(0)
+                    setCollectionFilter(event.target.value)
+                  }}
+                  disabled={Boolean(filterOptionsError)}
+                >
+                  <option value="">All collections</option>
+                  {collections.map((collection) => (
+                    <option key={collection.id} value={collection.id}>{collection.name}</option>
+                  ))}
+                </select>
+              </label>
+              {hasActiveFilters && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setPage(0)
+                    setSearchInput('')
+                    setQuery('')
+                    setFavoriteFilter('all')
+                    setCategoryFilter('')
+                    setCollectionFilter('')
+                  }}
+                >
+                  Clear search and filters
+                </button>
+              )}
+            </div>
+            {filterOptionsError && (
+              <div className="filter-options-error" role="alert">
+                <p>{filterOptionsError}</p>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setFilterOptionsRetryCount((value) => value + 1)}
+                >
+                  Retry filters
+                </button>
+              </div>
+            )}
+          </div>
+
           {loading && <p className="library-status" role="status">Loading your library…</p>}
           {error && (
             <div className="library-error" role="alert">
@@ -324,12 +520,32 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
               </button>
             </div>
           )}
-          {!loading && !error && libraryPage?.totalElements === 0 && (
+          {!loading && !error && libraryPage?.totalElements === 0 && !hasActiveFilters && (
             <div className="library-empty">
               <h3>Your library is empty</h3>
               <p>Import your saved-post export to see posts here.</p>
               <button className="import-button" type="button" onClick={onOpenImport}>
                 Import saved posts
+              </button>
+            </div>
+          )}
+          {!loading && !error && libraryPage?.totalElements === 0 && hasActiveFilters && (
+            <div className="library-empty">
+              <h3>No matching posts</h3>
+              <p>Try another search or clear the current filters.</p>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setPage(0)
+                  setSearchInput('')
+                  setQuery('')
+                  setFavoriteFilter('all')
+                  setCategoryFilter('')
+                  setCollectionFilter('')
+                }}
+              >
+                Clear search and filters
               </button>
             </div>
           )}

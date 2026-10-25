@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -24,18 +25,29 @@ public class PostLibraryService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public PostPageResponse findPosts(int page, int size) {
+    public PostPageResponse findPosts(
+            int page,
+            int size,
+            String query,
+            Boolean favorite,
+            UUID categoryId,
+            UUID collectionId) {
+        FilterClause filter = buildFilter(query, favorite, categoryId, collectionId);
         long offset = (long) page * size;
+        List<Object> pageParameters = new ArrayList<>(filter.parameters());
+        pageParameters.add(size);
+        pageParameters.add(offset);
         List<PostDto> posts = jdbcTemplate.query(
                 "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite "
                         + "FROM posts p LEFT JOIN post_favorites f ON f.post_id = p.id "
-                        + "ORDER BY p.saved_at DESC, p.id DESC LIMIT ? OFFSET ?",
+                        + filter.whereClause()
+                        + " ORDER BY p.saved_at DESC, p.id DESC LIMIT ? OFFSET ?",
                 POST_MAPPER,
-                size,
-                offset);
+                pageParameters.toArray());
         long totalElements = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM posts",
-                Long.class);
+                "SELECT COUNT(*) FROM posts p" + filter.whereClause(),
+                Long.class,
+                filter.parameters().toArray());
         long totalPages = totalElements == 0 ? 0 : 1 + (totalElements - 1) / size;
 
         return new PostPageResponse(
@@ -46,6 +58,44 @@ public class PostLibraryService {
                 totalPages,
                 (page + 1L) * size < totalElements,
                 page > 0);
+    }
+
+    private FilterClause buildFilter(
+            String query,
+            Boolean favorite,
+            UUID categoryId,
+            UUID collectionId) {
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        List<Object> parameters = new ArrayList<>();
+        if (query != null) {
+            where.append(" AND (to_tsvector('simple', COALESCE(p.original_url, '') || ' ' "
+                    + "|| p.source_metadata::text) @@ websearch_to_tsquery('simple', ?) "
+                    + "OR EXISTS (SELECT 1 FROM post_notes n WHERE n.post_id = p.id "
+                    + "AND to_tsvector('simple', n.note) @@ websearch_to_tsquery('simple', ?)) "
+                    + "OR EXISTS (SELECT 1 FROM post_categories pc "
+                    + "JOIN categories c ON c.id = pc.category_id "
+                    + "WHERE pc.post_id = p.id "
+                    + "AND to_tsvector('simple', c.name) @@ websearch_to_tsquery('simple', ?)))");
+            parameters.add(query);
+            parameters.add(query);
+            parameters.add(query);
+        }
+        if (favorite != null) {
+            where.append(favorite
+                    ? " AND EXISTS (SELECT 1 FROM post_favorites f WHERE f.post_id = p.id)"
+                    : " AND NOT EXISTS (SELECT 1 FROM post_favorites f WHERE f.post_id = p.id)");
+        }
+        if (categoryId != null) {
+            where.append(" AND EXISTS (SELECT 1 FROM post_categories pc "
+                    + "WHERE pc.post_id = p.id AND pc.category_id = ?)");
+            parameters.add(categoryId);
+        }
+        if (collectionId != null) {
+            where.append(" AND EXISTS (SELECT 1 FROM collection_posts cp "
+                    + "WHERE cp.post_id = p.id AND cp.collection_id = ?)");
+            parameters.add(collectionId);
+        }
+        return new FilterClause(where.toString(), List.copyOf(parameters));
     }
 
     public Optional<PostDto> findPost(UUID id) {
@@ -101,5 +151,8 @@ public class PostLibraryService {
     public Optional<PostNoteDto> deleteNote(UUID id) {
         jdbcTemplate.update("DELETE FROM post_notes WHERE post_id = ?", id);
         return findNote(id).map(note -> new PostNoteDto(note.postId(), null, null));
+    }
+
+    private record FilterClause(String whereClause, List<Object> parameters) {
     }
 }

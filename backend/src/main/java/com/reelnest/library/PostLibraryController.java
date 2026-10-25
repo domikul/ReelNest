@@ -21,6 +21,7 @@ public class PostLibraryController {
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
     private static final int MAX_NOTE_LENGTH = 5000;
+    private static final int MAX_SEARCH_LENGTH = 200;
 
     private final PostLibraryService postLibraryService;
 
@@ -31,7 +32,11 @@ public class PostLibraryController {
     @GetMapping
     public PostPageResponse listPosts(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(required = false) Boolean favorite,
+            @RequestParam(required = false) UUID categoryId,
+            @RequestParam(required = false) UUID collectionId) {
         if (page < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Page must be zero or greater.");
         }
@@ -40,7 +45,13 @@ public class PostLibraryController {
                     HttpStatus.BAD_REQUEST,
                     "Page size must be between 1 and " + MAX_PAGE_SIZE + ".");
         }
-        return postLibraryService.findPosts(page, size);
+        return postLibraryService.findPosts(
+                page,
+                size,
+                validateSearchQuery(query),
+                favorite,
+                categoryId,
+                collectionId);
     }
 
     @GetMapping("/{postId}")
@@ -97,5 +108,21 @@ public class PostLibraryController {
     }
 
     public record NoteRequest(String note) {
+    }
+
+    private String validateSearchQuery(String query) {
+        if (query == null || query.isBlank()) {
+            return null;
+        }
+        String normalized = query.strip();
+        if (normalized.length() > MAX_SEARCH_LENGTH
+                || normalized.chars().anyMatch(character -> Character.isISOControl(character))
+                || normalized.codePoints().noneMatch(codePoint -> Character.isLetterOrDigit(codePoint))) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Search query must contain letters or numbers and be no longer than "
+                            + MAX_SEARCH_LENGTH + " characters.");
+        }
+        return normalized;
     }
 }
