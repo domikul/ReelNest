@@ -121,6 +121,16 @@ Category and assignment data are stored separately from imported post
 metadata, so imports do not overwrite them. Deleting a category removes its
 post assignments. Category mutations also require the authenticated session
 and CSRF token.
+Manage collections with `GET /api/collections`, `POST /api/collections`,
+`PUT /api/collections/{id}`, and `DELETE /api/collections/{id}`. Collection
+names are trimmed, unique without regard to case, and limited to 80
+characters. View paginated posts with
+`GET /api/collections/{id}/posts?page=0&size=20`; view a post's collection
+memberships with `GET /api/posts/{id}/collections`. Add or remove a post with
+`PUT` or `DELETE /api/posts/{postId}/collections/{collectionId}`. Collections
+and memberships are separate from imported post metadata; deleting a
+collection removes its memberships. Collection mutations also require the
+authenticated session and CSRF token.
 
 ## Environment variables
 
@@ -160,6 +170,6 @@ same-origin. For a cross-site frontend deployment, use
 The backend importer accepts the observed saved-post export format, and the
 library currently displays imported saved dates, original post links,
 persistent favorites, personal notes, and user-managed categories.
-Collections, search, viewing, watch sessions, and the full application
-database schema belong to later milestones.
+User-managed collections are available as well. Search, viewing, watch
+sessions, and the full application database schema belong to later milestones.
 No personal Instagram export data is required or included in Git.

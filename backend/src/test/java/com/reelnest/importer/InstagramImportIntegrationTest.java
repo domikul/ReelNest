@@ -68,7 +68,8 @@ class InstagramImportIntegrationTest {
     @BeforeEach
     void clearDatabase() {
         jdbcTemplate.execute(
-                "TRUNCATE TABLE import_jobs, post_categories, categories, post_notes, post_favorites, posts");
+                "TRUNCATE TABLE import_jobs, post_categories, categories, collection_posts, collections, "
+                        + "post_notes, post_favorites, posts");
     }
 
     @Test
@@ -125,6 +126,8 @@ class InstagramImportIntegrationTest {
         setNote(postId, "synthetic preserved note");
         UUID categoryId = createCategory("Synthetic category");
         assignCategory(postId, categoryId);
+        UUID collectionId = createCollection("Synthetic collection");
+        addPostToCollection(postId, collectionId);
 
         upload(initial)
                 .andExpect(status().isCreated())
@@ -157,6 +160,13 @@ class InstagramImportIntegrationTest {
                         Integer.class,
                         postId,
                         categoryId));
+        assertEquals(
+                1,
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM collection_posts WHERE post_id = ? AND collection_id = ?",
+                        Integer.class,
+                        postId,
+                        collectionId));
         assertEquals(
                 "updated-metadata",
                 jdbcTemplate.queryForObject(
@@ -387,6 +397,30 @@ class InstagramImportIntegrationTest {
                         .header("X-CSRF-TOKEN", csrfToken(session)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(categoryId.toString()));
+    }
+
+    private UUID createCollection(String name) throws Exception {
+        MockHttpSession session = authenticatedSession();
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.post("/api/collections")
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("name", name))))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString())
+                .get("id")
+                .asText());
+    }
+
+    private void addPostToCollection(UUID postId, UUID collectionId) throws Exception {
+        MockHttpSession session = authenticatedSession();
+        mockMvc.perform(MockMvcRequestBuilders.put(
+                                "/api/posts/{postId}/collections/{collectionId}", postId, collectionId)
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(collectionId.toString()));
     }
 
     private ResultActions upload(byte[] content) throws Exception {

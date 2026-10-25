@@ -62,7 +62,8 @@ class CategoryIntegrationTest {
     @BeforeEach
     void clearDatabase() {
         jdbcTemplate.execute(
-                "TRUNCATE TABLE import_jobs, post_categories, categories, post_notes, post_favorites, posts");
+                "TRUNCATE TABLE import_jobs, post_categories, categories, collection_posts, collections, "
+                        + "post_notes, post_favorites, posts");
     }
 
     @Test

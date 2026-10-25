@@ -10,6 +10,8 @@ import FavoriteButton from './FavoriteButton'
 import PostNoteEditor from './PostNoteEditor'
 import CategoryManager from './CategoryManager'
 import PostCategoryEditor from './PostCategoryEditor'
+import CollectionManager from './CollectionManager'
+import PostCollectionEditor from './PostCollectionEditor'
 
 const pageSize = 20
 
@@ -168,6 +170,11 @@ function PostDetails({
               csrfToken={csrfToken}
               onSessionExpired={onSessionExpired}
             />
+            <PostCollectionEditor
+              postId={post.id}
+              csrfToken={csrfToken}
+              onSessionExpired={onSessionExpired}
+            />
             <a
               className="original-post-link"
               href={post.originalUrl}
@@ -189,6 +196,7 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
   const [libraryPage, setLibraryPage] = useState<LibraryPage | null>(null)
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
   const [managingCategories, setManagingCategories] = useState(false)
+  const [managingCollections, setManagingCollections] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
@@ -243,7 +251,19 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
   }, [page, retryCount, onSessionExpired])
 
   return (
-    <section className="library-section" id="library" aria-labelledby="library-title">
+    <section
+      className="library-section"
+      id="library"
+      aria-labelledby={
+        selectedPostId
+          ? 'post-details-title'
+          : managingCategories
+            ? 'categories-title'
+            : managingCollections
+              ? 'collection-manager-title'
+              : 'library-title'
+      }
+    >
       {selectedPostId ? (
         <PostDetails
           postId={selectedPostId}
@@ -256,6 +276,13 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
         <CategoryManager
           csrfToken={csrfToken}
           onBack={() => setManagingCategories(false)}
+          onSessionExpired={onSessionExpired}
+        />
+      ) : managingCollections ? (
+        <CollectionManager
+          csrfToken={csrfToken}
+          onBack={() => setManagingCollections(false)}
+          onOpenPost={setSelectedPostId}
           onSessionExpired={onSessionExpired}
         />
       ) : (
@@ -277,6 +304,13 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
                 onClick={() => setManagingCategories(true)}
               >
                 Manage categories
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setManagingCollections(true)}
+              >
+                Manage collections
               </button>
             </div>
           </div>
