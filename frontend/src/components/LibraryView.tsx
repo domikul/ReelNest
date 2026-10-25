@@ -19,6 +19,7 @@ import CategoryManager from './CategoryManager'
 import PostCategoryEditor from './PostCategoryEditor'
 import CollectionManager from './CollectionManager'
 import PostCollectionEditor from './PostCollectionEditor'
+import PostViewer from './PostViewer'
 
 const pageSize = 20
 
@@ -175,6 +176,7 @@ function PostDetails({
   const [viewTrackingBusy, setViewTrackingBusy] = useState(true)
   const [viewTrackingError, setViewTrackingError] = useState<string | null>(null)
   const [viewRetryCount, setViewRetryCount] = useState(0)
+  const [viewerOpen, setViewerOpen] = useState(false)
 
   async function handleFavoriteToggle() {
     if (!post || favoriteBusy) {
@@ -273,6 +275,18 @@ function PostDetails({
     }
   }, [postId, csrfToken, viewRetryCount, onViewRecorded, onSessionExpired])
 
+  if (post && viewerOpen) {
+    return (
+      <PostViewer
+        post={post}
+        postType={null}
+        creatorUsername={null}
+        caption={null}
+        onBack={() => setViewerOpen(false)}
+      />
+    )
+  }
+
   return (
     <section className="post-details" aria-labelledby="post-details-title">
       <button className="text-button" type="button" onClick={onBack}>
@@ -336,6 +350,13 @@ function PostDetails({
               error={favoriteError}
               onToggle={() => void handleFavoriteToggle()}
             />
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setViewerOpen(true)}
+            >
+              Open post viewer
+            </button>
             <PostNoteEditor
               postId={post.id}
               csrfToken={csrfToken}

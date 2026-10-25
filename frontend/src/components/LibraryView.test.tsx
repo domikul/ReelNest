@@ -256,6 +256,14 @@ describe('protected paginated library', () => {
       `/api/posts/${firstPost.id}`,
       expect.objectContaining({ method: 'GET', credentials: 'include' }),
     )
+
+    await user.click(screen.getByRole('button', { name: 'Open post viewer' }))
+    expect(await screen.findByRole('heading', { name: 'Post type unavailable' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Back to post details' }))
+    expect(await screen.findByRole('heading', { name: 'Instagram post' })).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([url, options]) =>
+      String(url).endsWith('/view') && options?.method === 'PUT',
+    )).toHaveLength(1)
   })
 
   it('sets and removes favorite state from a card and from post details', async () => {

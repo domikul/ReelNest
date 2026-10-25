@@ -118,8 +118,13 @@ up to 20 recently viewed posts with
 `GET /api/posts/recently-watched?size=8`. The history stores the most recent
 view time separately from imported source metadata and can be reused by a
 future viewer; it does not track playback. Personal notes are separate from
-imported source metadata: use
-`GET /api/posts/{id}/notes` to view a note, `PUT /api/posts/{id}/notes` with
+imported source metadata. The post-details **Open post viewer** action opens
+the single-post layouts.
+Reel/video, carousel, and image types have distinct fallback layouts, but the
+current importer/API does not supply post type, creator, caption, or media
+references. Existing imported posts therefore show the unknown-type and
+unavailable-media state; the viewer does not play or embed Instagram content.
+Use `GET /api/posts/{id}/notes` to view a note, `PUT /api/posts/{id}/notes` with
 `{"note":"..."}` to create or update it, and `DELETE /api/posts/{id}/notes`
 to remove it. Notes must contain non-whitespace text and may be up to 5,000
 characters. These operations require the authenticated session and CSRF token.
