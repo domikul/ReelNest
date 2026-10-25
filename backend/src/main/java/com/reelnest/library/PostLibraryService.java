@@ -71,4 +71,35 @@ public class PostLibraryService {
         }
         return findPost(id);
     }
+
+    public Optional<PostNoteDto> findNote(UUID id) {
+        List<PostNoteDto> notes = jdbcTemplate.query(
+                "SELECT p.id AS post_id, n.note, n.updated_at "
+                        + "FROM posts p LEFT JOIN post_notes n ON n.post_id = p.id WHERE p.id = ?",
+                (resultSet, rowNumber) -> {
+                    var updatedAt = resultSet.getTimestamp("updated_at");
+                    return new PostNoteDto(
+                            resultSet.getObject("post_id", UUID.class),
+                            resultSet.getString("note"),
+                            updatedAt == null ? null : updatedAt.toInstant());
+                },
+                id);
+        return notes.stream().findFirst();
+    }
+
+    public Optional<PostNoteDto> saveNote(UUID id, String note) {
+        jdbcTemplate.update(
+                "INSERT INTO post_notes (post_id, note) "
+                        + "SELECT id, ? FROM posts WHERE id = ? "
+                        + "ON CONFLICT (post_id) DO UPDATE "
+                        + "SET note = EXCLUDED.note, updated_at = CURRENT_TIMESTAMP",
+                note,
+                id);
+        return findNote(id);
+    }
+
+    public Optional<PostNoteDto> deleteNote(UUID id) {
+        jdbcTemplate.update("DELETE FROM post_notes WHERE post_id = ?", id);
+        return findNote(id).map(note -> new PostNoteDto(note.postId(), null, null));
+    }
 }

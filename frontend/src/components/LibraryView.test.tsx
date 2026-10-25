@@ -88,11 +88,16 @@ describe('protected paginated library', () => {
   })
 
   it('shows post details, a safe original link, and unavailable-metadata fallbacks', async () => {
-    fetchMock.mockImplementation(async (input) =>
-      String(input).startsWith('/api/posts?')
-        ? jsonResponse(libraryPage([firstPost]))
-        : jsonResponse(firstPost),
-    )
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([firstPost]))
+      }
+      if (path.endsWith('/notes')) {
+        return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
+      }
+      return jsonResponse(firstPost)
+    })
     const user = userEvent.setup()
     renderLibrary()
 
@@ -123,6 +128,9 @@ describe('protected paginated library', () => {
       if (path.endsWith('/favorite')) {
         favorite = JSON.parse(String(options?.body)).favorite
         return jsonResponse({ ...firstPost, favorite })
+      }
+      if (path.endsWith('/notes')) {
+        return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
       }
       return jsonResponse({ ...firstPost, favorite })
     })
@@ -165,7 +173,11 @@ describe('protected paginated library', () => {
       if (options?.method === 'PUT') {
         return jsonResponse({ detail: 'Sensitive persistence failure.' }, 503)
       }
-      return jsonResponse(libraryPage([firstPost]))
+      return String(_input).startsWith('/api/posts?')
+        ? jsonResponse(libraryPage([firstPost]))
+        : String(_input).endsWith('/notes')
+          ? jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
+          : jsonResponse(firstPost)
     })
     const user = userEvent.setup()
     renderLibrary()

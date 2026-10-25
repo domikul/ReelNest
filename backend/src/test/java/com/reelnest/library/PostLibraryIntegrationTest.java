@@ -19,9 +19,11 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -57,7 +59,7 @@ class PostLibraryIntegrationTest {
 
     @BeforeEach
     void clearDatabase() {
-        jdbcTemplate.execute("TRUNCATE TABLE import_jobs, post_favorites, posts");
+        jdbcTemplate.execute("TRUNCATE TABLE import_jobs, post_notes, post_favorites, posts");
     }
 
     @Test
@@ -163,6 +165,80 @@ class PostLibraryIntegrationTest {
     }
 
     @Test
+    void createsUpdatesAndRemovesPersonalNotesPersistently() throws Exception {
+        UUID postId = insertPost(1, "2026-02-12T10:15:30Z");
+        MockHttpSession session = authenticatedSession();
+
+        mockMvc.perform(get("/api/posts/{postId}/notes", postId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.postId").value(postId.toString()))
+                .andExpect(jsonPath("$.note").value(nullValue()))
+                .andExpect(jsonPath("$.updatedAt").value(nullValue()));
+
+        setNote(session, postId, "synthetic note version one")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.note").value("synthetic note version one"));
+        setNote(session, postId, "synthetic note version two")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.note").value("synthetic note version two"))
+                .andExpect(jsonPath("$.updatedAt").isNotEmpty());
+
+        mockMvc.perform(get("/api/posts/{postId}/notes", postId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.note").value("synthetic note version two"));
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_notes", Integer.class));
+
+        mockMvc.perform(delete("/api/posts/{postId}/notes", postId)
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session)))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/posts/{postId}/notes", postId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.note").value(nullValue()));
+        mockMvc.perform(delete("/api/posts/{postId}/notes", postId)
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session)))
+                .andExpect(status().isNoContent());
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_notes", Integer.class));
+    }
+
+    @Test
+    void protectsNoteOperationsAndValidatesNoteInputAndPostExistence() throws Exception {
+        UUID postId = insertPost(1, "2026-02-12T10:15:30Z");
+        UUID missingPostId = UUID.randomUUID();
+        mockMvc.perform(get("/api/posts/{postId}/notes", postId))
+                .andExpect(status().isUnauthorized());
+
+        MockHttpSession anonymousSession = new MockHttpSession();
+        String anonymousCsrfToken = csrfToken(anonymousSession);
+        mockMvc.perform(put("/api/posts/{postId}/notes", postId)
+                        .session(anonymousSession)
+                        .header("X-CSRF-TOKEN", anonymousCsrfToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"synthetic note\"}"))
+                .andExpect(status().isUnauthorized());
+
+        MockHttpSession session = authenticatedSession();
+        mockMvc.perform(put("/api/posts/{postId}/notes", postId)
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"synthetic note\"}"))
+                .andExpect(status().isForbidden());
+        setNote(session, postId, "   ").andExpect(status().isBadRequest());
+        setNote(session, postId, "x".repeat(5001)).andExpect(status().isBadRequest());
+        setNote(session, postId, null).andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/posts/{postId}/notes", missingPostId).session(session))
+                .andExpect(status().isNotFound());
+        setNote(session, missingPostId, "synthetic note").andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/posts/{postId}/notes", missingPostId)
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session)))
+                .andExpect(status().isNotFound());
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_notes", Integer.class));
+    }
+
+    @Test
     void protectsBothLibraryEndpointsAndRejectsInvalidPagination() throws Exception {
         UUID postId = insertPost(1, "2026-01-01T00:00:00Z");
         mockMvc.perform(get("/api/posts"))
@@ -254,6 +330,15 @@ class PostLibraryIntegrationTest {
                 .header("X-CSRF-TOKEN", csrfToken(session))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"favorite\":" + favorite + "}"));
+    }
+
+    private ResultActions setNote(MockHttpSession session, UUID postId, String note) throws Exception {
+        String serializedNote = note == null ? "null" : objectMapper.writeValueAsString(note);
+        return mockMvc.perform(put("/api/posts/{postId}/notes", postId)
+                .session(session)
+                .header("X-CSRF-TOKEN", csrfToken(session))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\":" + serializedNote + "}"));
     }
 
     private String csrfToken(MockHttpSession session) throws Exception {

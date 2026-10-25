@@ -5,6 +5,14 @@ export interface LibraryPost {
   favorite: boolean
 }
 
+export interface LibraryPostNote {
+  postId: string
+  note: string | null
+  updatedAt: string | null
+}
+
+export const MAX_NOTE_LENGTH = 5000
+
 export interface LibraryPage {
   items: LibraryPost[]
   page: number
@@ -102,6 +110,10 @@ async function getJson(path: string, options?: RequestInit): Promise<unknown> {
     )
   }
 
+  if (response.status === 204) {
+    return null
+  }
+
   try {
     return await response.json()
   } catch {
@@ -142,4 +154,70 @@ export async function setLibraryPostFavorite(
     throw new LibraryApiError('The server returned unexpected favorite details.')
   }
   return payload
+}
+
+function isLibraryPostNote(value: unknown, postId: string): value is LibraryPostNote {
+  if (!isObject(value) || value.postId !== postId) {
+    return false
+  }
+  const validNote = value.note === null || (
+    typeof value.note === 'string' &&
+    value.note.trim().length > 0 &&
+    value.note.length <= MAX_NOTE_LENGTH
+  )
+  const validUpdatedAt = value.updatedAt === null || (
+    typeof value.updatedAt === 'string' &&
+    Number.isFinite(Date.parse(value.updatedAt))
+  )
+  return validNote && validUpdatedAt && (value.note === null) === (value.updatedAt === null)
+}
+
+export async function getLibraryPostNote(postId: string): Promise<LibraryPostNote> {
+  const payload = await getJson(`/api/posts/${encodeURIComponent(postId)}/notes`)
+  if (!isLibraryPostNote(payload, postId)) {
+    throw new LibraryApiError('The server returned unexpected note details.')
+  }
+  return payload
+}
+
+export async function saveLibraryPostNote(
+  postId: string,
+  note: string,
+  csrfToken: string,
+): Promise<LibraryPostNote> {
+  if (note.trim().length === 0 || note.length > MAX_NOTE_LENGTH) {
+    throw new LibraryApiError('A note must contain text and be no longer than 5,000 characters.', 400)
+  }
+  let payload: unknown
+  try {
+    payload = await getJson(`/api/posts/${encodeURIComponent(postId)}/notes`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': csrfToken,
+      },
+      body: JSON.stringify({ note }),
+    })
+  } catch (cause) {
+    if (cause instanceof LibraryApiError && cause.status === 400) {
+      throw new LibraryApiError('A note must contain text and be no longer than 5,000 characters.', 400)
+    }
+    throw cause
+  }
+  if (!isLibraryPostNote(payload, postId) || payload.note !== note) {
+    throw new LibraryApiError('The server returned unexpected note details.')
+  }
+  return payload
+}
+
+export async function deleteLibraryPostNote(postId: string, csrfToken: string): Promise<void> {
+  const payload = await getJson(`/api/posts/${encodeURIComponent(postId)}/notes`, {
+    method: 'DELETE',
+    headers: {
+      'X-CSRF-TOKEN': csrfToken,
+    },
+  })
+  if (payload !== null) {
+    throw new LibraryApiError('The server returned an unexpected note response.')
+  }
 }

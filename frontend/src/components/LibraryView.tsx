@@ -7,6 +7,7 @@ import {
   setLibraryPostFavorite,
 } from '../api/library'
 import FavoriteButton from './FavoriteButton'
+import PostNoteEditor from './PostNoteEditor'
 
 const pageSize = 20
 
@@ -154,6 +155,11 @@ function PostDetails({
               busy={favoriteBusy}
               error={favoriteError}
               onToggle={() => void handleFavoriteToggle()}
+            />
+            <PostNoteEditor
+              postId={post.id}
+              csrfToken={csrfToken}
+              onSessionExpired={onSessionExpired}
             />
             <a
               className="original-post-link"

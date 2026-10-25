@@ -862,6 +862,93 @@ h1 {
   text-decoration: none;
 }
 
+.post-note {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.post-note h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.post-note-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.note-empty,
+.note-form,
+.note-saved {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.note-empty p,
+.note-guidance,
+.note-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.note-form {
+  width: 100%;
+}
+
+.note-form label {
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.note-form textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.note-form textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.note-error {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  margin: 0;
+  color: #985147;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.note-error p {
+  margin: 0;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

@@ -107,7 +107,11 @@ server-side pagination (page numbering starts at zero; page sizes are 1–100),
 `{"favorite":false}` to set favorite state idempotently. Current imported
 records provide a saved date and original Instagram URL; captions, creator
 details, post type, and thumbnails are not available in the stored importer
-metadata.
+metadata. Personal notes are separate from imported source metadata: use
+`GET /api/posts/{id}/notes` to view a note, `PUT /api/posts/{id}/notes` with
+`{"note":"..."}` to create or update it, and `DELETE /api/posts/{id}/notes`
+to remove it. Notes must contain non-whitespace text and may be up to 5,000
+characters. These operations require the authenticated session and CSRF token.
 
 ## Environment variables
 
@@ -145,7 +149,8 @@ same-origin. For a cross-site frontend deployment, use
 ## Scope and next milestones
 
 The backend importer accepts the observed saved-post export format, and the
-library currently displays imported saved dates, original post links, and
-persistent favorites. Collections, notes, categories, search, viewing, watch
-sessions, and the full application database schema belong to later milestones.
+library currently displays imported saved dates, original post links,
+persistent favorites, and personal notes. Collections, categories, search,
+viewing, watch sessions, and the full application database schema belong to
+later milestones.
 No personal Instagram export data is required or included in Git.
