@@ -38,8 +38,14 @@ async function selectFile(file = savedPostsFile()) {
   return file
 }
 
-function renderImportPanel(onSessionExpired = vi.fn()) {
-  render(<ImportPanel csrfToken="test-csrf-token" onSessionExpired={onSessionExpired} />)
+function renderImportPanel(onSessionExpired = vi.fn(), onImportComplete = vi.fn()) {
+  render(
+    <ImportPanel
+      csrfToken="test-csrf-token"
+      onSessionExpired={onSessionExpired}
+      onImportComplete={onImportComplete}
+    />,
+  )
   return onSessionExpired
 }
 
@@ -56,7 +62,8 @@ describe('Instagram saved-post import flow', () => {
 
   it('uploads the selected file and displays all summary counts and safe item errors', async () => {
     fetchMock.mockResolvedValue(jsonResponse(partialSummary))
-    renderImportPanel()
+    const onImportComplete = vi.fn()
+    renderImportPanel(vi.fn(), onImportComplete)
 
     const file = await selectFile()
     await userEvent.click(screen.getByRole('button', { name: 'Import saved posts' }))
@@ -82,6 +89,7 @@ describe('Instagram saved-post import flow', () => {
     expect(options?.credentials).toBe('include')
     expect(options?.body).toBeInstanceOf(FormData)
     expect((options?.body as FormData).get('file')).toBe(file)
+    expect(onImportComplete).toHaveBeenCalledOnce()
   })
 
   it('rejects a non-JSON file before sending it', async () => {

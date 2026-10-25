@@ -2,14 +2,14 @@
 
 ReelNest is a private home for saved Instagram content, designed for
 intentional browsing instead of an endless feed. The project currently
-includes a secured single-user sign-in, a saved-post export importer, and the
-application foundation; the library and other product features are planned
-for later milestones.
+includes a secured single-user sign-in, a saved-post export importer, and a
+paginated library with post details. Other product features are planned for
+later milestones.
 
 ## Project layout
 
-- `backend/` — Java 21 and Spring Boot REST API.
-- `frontend/` — React, TypeScript, and Vite application shell.
+- `backend/` — Java 21 and Spring Boot REST API, importer, and paginated library API.
+- `frontend/` — React, TypeScript, and Vite application.
 - `docker-compose.yml` — local PostgreSQL database.
 
 ## Prerequisites
@@ -53,7 +53,7 @@ for later milestones.
 
    Spring Boot applies the Flyway migration at startup. The health endpoint is
    available at <http://localhost:8080/api/health>; sign-in is required for
-   imports and other private API requests.
+   imports, library, and other private API requests.
 
 4. In another terminal, start the frontend:
 
@@ -96,9 +96,15 @@ npm run build
 
 Backend tests include PostgreSQL integration coverage. Start the database with
 `docker compose up -d db` before running `mvn -f backend/pom.xml test`. The
-integration tests use a separate `reelnest_import_test` schema and do not
-truncate the development schema. Set `REELNEST_TEST_DATABASE_URL` to use a
-different test database URL.
+integration tests use separate `reelnest_import_test` and
+`reelnest_library_test` schemas and do not truncate the development schema. Set
+`REELNEST_TEST_DATABASE_URL` to use a different test database URL.
+
+The protected library API uses `GET /api/posts?page=0&size=20` for
+server-side pagination (page numbering starts at zero; page sizes are 1–100)
+and `GET /api/posts/{id}` for details. Current imported records provide a saved
+date and original Instagram URL; captions, creator details, post type, and
+thumbnails are not available in the stored importer metadata.
 
 ## Environment variables
 
@@ -135,7 +141,8 @@ same-origin. For a cross-site frontend deployment, use
 
 ## Scope and next milestones
 
-The current backend importer accepts the observed saved-post export format,
-but does not yet manage the library, collections, favorites, search, viewing,
-watch sessions, or the full application database schema. Those belong to later
-milestones. No personal Instagram export data is required or included in Git.
+The backend importer accepts the observed saved-post export format, and the
+library currently displays imported saved dates and original post links.
+Collections, favorites, notes, categories, search, viewing, watch sessions, and
+the full application database schema belong to later milestones. No personal
+Instagram export data is required or included in Git.

@@ -54,6 +54,17 @@ describe('ReelNest application shell', () => {
         loggedIn = false
         return new Response(null, { status: 204 })
       }
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse({
+          items: [],
+          page: 0,
+          size: 20,
+          totalElements: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrevious: false,
+        })
+      }
       if (path === '/api/imports' && rejectImport) {
         return jsonResponse({ detail: 'Sensitive backend message.' }, 401)
       }
@@ -195,7 +206,7 @@ describe('ReelNest application shell', () => {
 
     const file = new File(['synthetic'], 'saved_posts.json', { type: 'application/json' })
     await user.upload(await screen.findByLabelText(/Instagram saved_posts export/), file)
-    await user.click(screen.getByRole('button', { name: 'Import saved posts' }))
+    await user.click(screen.getAllByRole('button', { name: 'Import saved posts' })[0])
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       'Your session expired. Sign in again to continue.',

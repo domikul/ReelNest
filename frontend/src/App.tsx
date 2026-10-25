@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AuthApiError, getCsrfToken, getSessionStatus, signIn, signOut } from './api/auth'
 import ImportPanel from './components/ImportPanel'
+import LibraryView from './components/LibraryView'
 import SignInForm from './components/SignInForm'
 
 type Theme = 'system' | 'light' | 'dark'
@@ -20,6 +21,7 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false)
   const [authNotice, setAuthNotice] = useState<string | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -94,11 +96,15 @@ function App() {
     }
   }
 
-  function handleSessionExpired() {
+  const handleSessionExpired = useCallback(() => {
     setCsrfToken(null)
     setAuthState('anonymous')
     setAuthNotice('Your session expired. Sign in again to continue.')
     setAuthError(null)
+  }, [])
+
+  function handleOpenImport() {
+    document.getElementById('import')?.scrollIntoView({ behavior: 'smooth' })
   }
 
   return (
@@ -111,6 +117,7 @@ function App() {
           <span className="brand-name">ReelNest</span>
         </a>
         <nav className="topnav" aria-label="Main navigation">
+          {authState === 'authenticated' && <a href="#library">Library</a>}
           <a href="#import">Import</a>
         </nav>
         <label className="theme-picker">
@@ -166,6 +173,7 @@ function App() {
             <ImportPanel
               csrfToken={csrfToken}
               onSessionExpired={handleSessionExpired}
+              onImportComplete={() => setLibraryRefreshKey((value) => value + 1)}
             />
           )}
           {authState === 'anonymous' && (
@@ -195,6 +203,14 @@ function App() {
           )}
         </div>
       </section>
+
+      {authState === 'authenticated' && (
+        <LibraryView
+          key={libraryRefreshKey}
+          onSessionExpired={handleSessionExpired}
+          onOpenImport={handleOpenImport}
+        />
+      )}
 
       <footer className="footer">
         <span>ReelNest</span>

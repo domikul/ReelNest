@@ -84,9 +84,10 @@ function ImportResult({ summary }: { summary: ImportSummary }) {
 interface ImportPanelProps {
   csrfToken: string
   onSessionExpired: () => void
+  onImportComplete: () => void
 }
 
-function ImportPanel({ csrfToken, onSessionExpired }: ImportPanelProps) {
+function ImportPanel({ csrfToken, onSessionExpired, onImportComplete }: ImportPanelProps) {
   const [file, setFile] = useState<File | null>(null)
   const [summary, setSummary] = useState<ImportSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -137,6 +138,7 @@ function ImportPanel({ csrfToken, onSessionExpired }: ImportPanelProps) {
     try {
       const result = await uploadSavedPosts(file, csrfToken)
       setSummary(result)
+      onImportComplete()
       setFile(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
