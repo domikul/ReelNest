@@ -8,6 +8,8 @@ import {
 } from '../api/library'
 import FavoriteButton from './FavoriteButton'
 import PostNoteEditor from './PostNoteEditor'
+import CategoryManager from './CategoryManager'
+import PostCategoryEditor from './PostCategoryEditor'
 
 const pageSize = 20
 
@@ -161,6 +163,11 @@ function PostDetails({
               csrfToken={csrfToken}
               onSessionExpired={onSessionExpired}
             />
+            <PostCategoryEditor
+              postId={post.id}
+              csrfToken={csrfToken}
+              onSessionExpired={onSessionExpired}
+            />
             <a
               className="original-post-link"
               href={post.originalUrl}
@@ -181,6 +188,7 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
   const [page, setPage] = useState(0)
   const [libraryPage, setLibraryPage] = useState<LibraryPage | null>(null)
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
+  const [managingCategories, setManagingCategories] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
@@ -244,6 +252,12 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
           onFavoriteChanged={handleFavoriteChanged}
           onSessionExpired={onSessionExpired}
         />
+      ) : managingCategories ? (
+        <CategoryManager
+          csrfToken={csrfToken}
+          onBack={() => setManagingCategories(false)}
+          onSessionExpired={onSessionExpired}
+        />
       ) : (
         <>
           <div className="library-heading">
@@ -251,11 +265,20 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
               <p className="eyebrow">Your library</p>
               <h2 id="library-title">Saved posts</h2>
             </div>
-            {!loading && libraryPage && libraryPage.totalElements > 0 && (
-              <p className="library-total">
-                {libraryPage.totalElements} {libraryPage.totalElements === 1 ? 'post' : 'posts'}
-              </p>
-            )}
+            <div className="library-heading-actions">
+              {!loading && libraryPage && libraryPage.totalElements > 0 && (
+                <p className="library-total">
+                  {libraryPage.totalElements} {libraryPage.totalElements === 1 ? 'post' : 'posts'}
+                </p>
+              )}
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setManagingCategories(true)}
+              >
+                Manage categories
+              </button>
+            </div>
           </div>
 
           {loading && <p className="library-status" role="status">Loading your library…</p>}

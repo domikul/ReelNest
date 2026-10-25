@@ -96,6 +96,9 @@ describe('protected paginated library', () => {
       if (path.endsWith('/notes')) {
         return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
       }
+      if (path.endsWith('/categories')) {
+        return jsonResponse([])
+      }
       return jsonResponse(firstPost)
     })
     const user = userEvent.setup()
@@ -131,6 +134,9 @@ describe('protected paginated library', () => {
       }
       if (path.endsWith('/notes')) {
         return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
+      }
+      if (path.endsWith('/categories')) {
+        return jsonResponse([])
       }
       return jsonResponse({ ...firstPost, favorite })
     })
@@ -173,11 +179,17 @@ describe('protected paginated library', () => {
       if (options?.method === 'PUT') {
         return jsonResponse({ detail: 'Sensitive persistence failure.' }, 503)
       }
-      return String(_input).startsWith('/api/posts?')
-        ? jsonResponse(libraryPage([firstPost]))
-        : String(_input).endsWith('/notes')
-          ? jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
-          : jsonResponse(firstPost)
+      const path = String(_input)
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([firstPost]))
+      }
+      if (path.endsWith('/notes')) {
+        return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
+      }
+      if (path.endsWith('/categories')) {
+        return jsonResponse([])
+      }
+      return jsonResponse(firstPost)
     })
     const user = userEvent.setup()
     renderLibrary()
@@ -202,6 +214,21 @@ describe('protected paginated library', () => {
       .toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Import saved posts' }))
     expect(onOpenImport).toHaveBeenCalledOnce()
+  })
+
+  it('opens the category manager from the library and returns to saved posts', async () => {
+    fetchMock.mockImplementation(async (input) =>
+      String(input).startsWith('/api/posts?')
+        ? jsonResponse(libraryPage([]))
+        : jsonResponse([]),
+    )
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await user.click(await screen.findByRole('button', { name: 'Manage categories' }))
+    expect(await screen.findByRole('heading', { name: 'Manage categories' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Back to library' }))
+    expect(await screen.findByRole('heading', { name: 'Saved posts' })).toBeInTheDocument()
   })
 
   it('shows an out-of-range no-results state with a route back to page one', async () => {

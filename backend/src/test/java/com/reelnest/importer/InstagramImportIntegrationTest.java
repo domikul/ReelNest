@@ -67,7 +67,8 @@ class InstagramImportIntegrationTest {
 
     @BeforeEach
     void clearDatabase() {
-        jdbcTemplate.execute("TRUNCATE TABLE import_jobs, post_notes, post_favorites, posts");
+        jdbcTemplate.execute(
+                "TRUNCATE TABLE import_jobs, post_categories, categories, post_notes, post_favorites, posts");
     }
 
     @Test
@@ -122,6 +123,8 @@ class InstagramImportIntegrationTest {
                 "synthetic-id-1");
         setFavorite(postId, true);
         setNote(postId, "synthetic preserved note");
+        UUID categoryId = createCategory("Synthetic category");
+        assignCategory(postId, categoryId);
 
         upload(initial)
                 .andExpect(status().isCreated())
@@ -147,6 +150,13 @@ class InstagramImportIntegrationTest {
                         "SELECT note FROM post_notes WHERE post_id = ?",
                         String.class,
                         postId));
+        assertEquals(
+                1,
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM post_categories WHERE post_id = ? AND category_id = ?",
+                        Integer.class,
+                        postId,
+                        categoryId));
         assertEquals(
                 "updated-metadata",
                 jdbcTemplate.queryForObject(
@@ -353,6 +363,30 @@ class InstagramImportIntegrationTest {
                         .content(objectMapper.writeValueAsString(java.util.Map.of("note", note))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.note").value(note));
+    }
+
+    private UUID createCategory(String name) throws Exception {
+        MockHttpSession session = authenticatedSession();
+        MvcResult result = mockMvc.perform(MockMvcRequestBuilders.post("/api/categories")
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("name", name))))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString())
+                .get("id")
+                .asText());
+    }
+
+    private void assignCategory(UUID postId, UUID categoryId) throws Exception {
+        MockHttpSession session = authenticatedSession();
+        mockMvc.perform(MockMvcRequestBuilders.put(
+                                "/api/posts/{postId}/categories/{categoryId}", postId, categoryId)
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(categoryId.toString()));
     }
 
     private ResultActions upload(byte[] content) throws Exception {

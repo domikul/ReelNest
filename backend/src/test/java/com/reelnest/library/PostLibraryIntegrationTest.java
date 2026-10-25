@@ -59,7 +59,8 @@ class PostLibraryIntegrationTest {
 
     @BeforeEach
     void clearDatabase() {
-        jdbcTemplate.execute("TRUNCATE TABLE import_jobs, post_notes, post_favorites, posts");
+        jdbcTemplate.execute(
+                "TRUNCATE TABLE import_jobs, post_categories, categories, post_notes, post_favorites, posts");
     }
 
     @Test

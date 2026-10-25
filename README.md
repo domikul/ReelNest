@@ -112,6 +112,15 @@ metadata. Personal notes are separate from imported source metadata: use
 `{"note":"..."}` to create or update it, and `DELETE /api/posts/{id}/notes`
 to remove it. Notes must contain non-whitespace text and may be up to 5,000
 characters. These operations require the authenticated session and CSRF token.
+Manage categories with `GET /api/categories`, `POST /api/categories`,
+`PUT /api/categories/{id}`, and `DELETE /api/categories/{id}`. Category names
+are trimmed, unique without regard to case, and limited to 80 characters.
+View a post's categories with `GET /api/posts/{id}/categories`; assign or
+remove one with `PUT` or `DELETE /api/posts/{id}/categories/{categoryId}`.
+Category and assignment data are stored separately from imported post
+metadata, so imports do not overwrite them. Deleting a category removes its
+post assignments. Category mutations also require the authenticated session
+and CSRF token.
 
 ## Environment variables
 
@@ -150,7 +159,7 @@ same-origin. For a cross-site frontend deployment, use
 
 The backend importer accepts the observed saved-post export format, and the
 library currently displays imported saved dates, original post links,
-persistent favorites, and personal notes. Collections, categories, search,
-viewing, watch sessions, and the full application database schema belong to
-later milestones.
+persistent favorites, personal notes, and user-managed categories.
+Collections, search, viewing, watch sessions, and the full application
+database schema belong to later milestones.
 No personal Instagram export data is required or included in Git.
