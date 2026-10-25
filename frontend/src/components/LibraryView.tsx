@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { LibraryPage, LibraryPost } from '../api/library'
-import { getLibraryPage, getLibraryPost, LibraryApiError } from '../api/library'
+import {
+  getLibraryPage,
+  getLibraryPost,
+  LibraryApiError,
+  setLibraryPostFavorite,
+} from '../api/library'
+import FavoriteButton from './FavoriteButton'
 
 const pageSize = 20
 
 interface LibraryViewProps {
+  csrfToken: string
   onSessionExpired: () => void
   onOpenImport: () => void
 }
@@ -19,17 +26,48 @@ function SavedDate({ value }: { value: string }) {
 
 function PostDetails({
   postId,
+  csrfToken,
   onBack,
+  onFavoriteChanged,
   onSessionExpired,
 }: {
   postId: string
+  csrfToken: string
   onBack: () => void
+  onFavoriteChanged: (post: LibraryPost) => void
   onSessionExpired: () => void
 }) {
   const [post, setPost] = useState<LibraryPost | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
+  const [favoriteBusy, setFavoriteBusy] = useState(false)
+  const [favoriteError, setFavoriteError] = useState<string | null>(null)
+
+  async function handleFavoriteToggle() {
+    if (!post || favoriteBusy) {
+      return
+    }
+    setFavoriteBusy(true)
+    setFavoriteError(null)
+    try {
+      const updatedPost = await setLibraryPostFavorite(post.id, !post.favorite, csrfToken)
+      setPost(updatedPost)
+      onFavoriteChanged(updatedPost)
+    } catch (cause) {
+      if (cause instanceof LibraryApiError && (cause.status === 401 || cause.status === 403)) {
+        onSessionExpired()
+        return
+      }
+      setFavoriteError(
+        cause instanceof LibraryApiError
+          ? cause.message
+          : 'Favorite could not be saved. Please retry.',
+      )
+    } finally {
+      setFavoriteBusy(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -111,6 +149,12 @@ function PostDetails({
                 <dd>Not available in this import</dd>
               </div>
             </dl>
+            <FavoriteButton
+              favorite={post.favorite}
+              busy={favoriteBusy}
+              error={favoriteError}
+              onToggle={() => void handleFavoriteToggle()}
+            />
             <a
               className="original-post-link"
               href={post.originalUrl}
@@ -127,13 +171,26 @@ function PostDetails({
   )
 }
 
-function LibraryView({ onSessionExpired, onOpenImport }: LibraryViewProps) {
+function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewProps) {
   const [page, setPage] = useState(0)
   const [libraryPage, setLibraryPage] = useState<LibraryPage | null>(null)
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
+
+  function handleFavoriteChanged(updatedPost: LibraryPost) {
+    setLibraryPage((currentPage) =>
+      currentPage
+        ? {
+            ...currentPage,
+            items: currentPage.items.map((item) =>
+              item.id === updatedPost.id ? updatedPost : item,
+            ),
+          }
+        : currentPage,
+    )
+  }
 
   useEffect(() => {
     let active = true
@@ -176,7 +233,9 @@ function LibraryView({ onSessionExpired, onOpenImport }: LibraryViewProps) {
       {selectedPostId ? (
         <PostDetails
           postId={selectedPostId}
+          csrfToken={csrfToken}
           onBack={() => setSelectedPostId(null)}
+          onFavoriteChanged={handleFavoriteChanged}
           onSessionExpired={onSessionExpired}
         />
       ) : (
@@ -224,21 +283,14 @@ function LibraryView({ onSessionExpired, onOpenImport }: LibraryViewProps) {
             <>
               <div className="library-grid">
                 {libraryPage.items.map((post) => (
-                  <article className="library-post-card" key={post.id}>
-                    <button
-                      className="library-post-button"
-                      type="button"
-                      aria-label={`Open saved post from ${formatSavedDate(post.savedAt)}`}
-                      onClick={() => setSelectedPostId(post.id)}
-                    >
-                      <div className="post-preview" aria-hidden="true">Preview unavailable</div>
-                      <div className="library-post-content">
-                        <SavedDate value={post.savedAt} />
-                        <h3>Instagram post</h3>
-                        <p>Caption and creator details are not available in this import.</p>
-                      </div>
-                    </button>
-                  </article>
+                  <LibraryPostCard
+                    key={post.id}
+                    post={post}
+                    csrfToken={csrfToken}
+                    onOpen={() => setSelectedPostId(post.id)}
+                    onFavoriteChanged={handleFavoriteChanged}
+                    onSessionExpired={onSessionExpired}
+                  />
                 ))}
               </div>
               {libraryPage.totalPages > 1 && (
@@ -267,6 +319,69 @@ function LibraryView({ onSessionExpired, onOpenImport }: LibraryViewProps) {
         </>
       )}
     </section>
+  )
+}
+
+function LibraryPostCard({
+  post,
+  csrfToken,
+  onOpen,
+  onFavoriteChanged,
+  onSessionExpired,
+}: {
+  post: LibraryPost
+  csrfToken: string
+  onOpen: () => void
+  onFavoriteChanged: (post: LibraryPost) => void
+  onSessionExpired: () => void
+}) {
+  const [favoriteBusy, setFavoriteBusy] = useState(false)
+  const [favoriteError, setFavoriteError] = useState<string | null>(null)
+
+  async function handleFavoriteToggle() {
+    if (favoriteBusy) {
+      return
+    }
+    setFavoriteBusy(true)
+    setFavoriteError(null)
+    try {
+      const updatedPost = await setLibraryPostFavorite(post.id, !post.favorite, csrfToken)
+      onFavoriteChanged(updatedPost)
+    } catch (cause) {
+      if (cause instanceof LibraryApiError && (cause.status === 401 || cause.status === 403)) {
+        onSessionExpired()
+        return
+      }
+      setFavoriteError(
+        cause instanceof LibraryApiError
+          ? cause.message
+          : 'Favorite could not be saved. Please retry.',
+      )
+    } finally {
+      setFavoriteBusy(false)
+    }
+  }
+
+  return (
+    <article className="library-post-card">
+      <div className="post-preview" aria-hidden="true">Preview unavailable</div>
+      <div className="library-post-content">
+        <SavedDate value={post.savedAt} />
+        <h3>Instagram post</h3>
+        <p>Caption and creator details are not available in this import.</p>
+        <div className="library-post-actions">
+          <button className="secondary-button" type="button" onClick={onOpen}>
+            View post details
+          </button>
+          <FavoriteButton
+            favorite={post.favorite}
+            busy={favoriteBusy}
+            error={favoriteError}
+            onToggle={() => void handleFavoriteToggle()}
+          />
+        </div>
+      </div>
+    </article>
   )
 }
 

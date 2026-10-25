@@ -2,6 +2,7 @@ export interface LibraryPost {
   id: string
   originalUrl: string
   savedAt: string
+  favorite: boolean
 }
 
 export interface LibraryPage {
@@ -53,7 +54,8 @@ function isLibraryPost(value: unknown): value is LibraryPost {
     typeof value.id === 'string' &&
     isInstagramUrl(value.originalUrl) &&
     typeof value.savedAt === 'string' &&
-    Number.isFinite(Date.parse(value.savedAt))
+    Number.isFinite(Date.parse(value.savedAt)) &&
+    typeof value.favorite === 'boolean'
   )
 }
 
@@ -72,11 +74,12 @@ function isLibraryPage(value: unknown, expectedPage: number, expectedSize: numbe
   )
 }
 
-async function getJson(path: string): Promise<unknown> {
+async function getJson(path: string, options?: RequestInit): Promise<unknown> {
   let response: Response
   try {
     response = await fetch(path, {
-      method: 'GET',
+      ...options,
+      method: options?.method ?? 'GET',
       credentials: 'include',
       cache: 'no-store',
     })
@@ -118,6 +121,25 @@ export async function getLibraryPost(postId: string): Promise<LibraryPost> {
   const payload = await getJson(`/api/posts/${encodeURIComponent(postId)}`)
   if (!isLibraryPost(payload)) {
     throw new LibraryApiError('The server returned unexpected post details.')
+  }
+  return payload
+}
+
+export async function setLibraryPostFavorite(
+  postId: string,
+  favorite: boolean,
+  csrfToken: string,
+): Promise<LibraryPost> {
+  const payload = await getJson(`/api/posts/${encodeURIComponent(postId)}/favorite`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-TOKEN': csrfToken,
+    },
+    body: JSON.stringify({ favorite }),
+  })
+  if (!isLibraryPost(payload) || payload.id !== postId || payload.favorite !== favorite) {
+    throw new LibraryApiError('The server returned unexpected favorite details.')
   }
   return payload
 }

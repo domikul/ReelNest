@@ -68,7 +68,7 @@ class InstagramImportIntegrationTest {
     @BeforeEach
     void clearDatabase() {
         jdbcTemplate.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS personal_note TEXT");
-        jdbcTemplate.execute("TRUNCATE TABLE import_jobs, posts");
+        jdbcTemplate.execute("TRUNCATE TABLE import_jobs, post_favorites, posts");
     }
 
     @Test
@@ -121,6 +121,7 @@ class InstagramImportIntegrationTest {
                 "SELECT id FROM posts WHERE source_identifier = ?",
                 UUID.class,
                 "synthetic-id-1");
+        setFavorite(postId, true);
         jdbcTemplate.update("UPDATE posts SET personal_note = ? WHERE id = ?", "test-only-personal-state", postId);
 
         upload(initial)
@@ -128,6 +129,7 @@ class InstagramImportIntegrationTest {
                 .andExpect(jsonPath("$.addedCount").value(0))
                 .andExpect(jsonPath("$.updatedCount").value(0))
                 .andExpect(jsonPath("$.skippedCount").value(1));
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_favorites", Integer.class));
 
         byte[] changedMetadata = objectMapper.writeValueAsBytes(
                 objectMapper.createArrayNode().add(post(
@@ -152,6 +154,9 @@ class InstagramImportIntegrationTest {
                         "SELECT source_metadata #>> '{1,value}' FROM posts WHERE id = ?",
                         String.class,
                         postId));
+        mockMvc.perform(get("/api/posts/{postId}", postId).session(authenticatedSession()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(true));
         assertEquals(3, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM import_jobs", Integer.class));
     }
 
@@ -275,6 +280,13 @@ class InstagramImportIntegrationTest {
                 .andExpect(header().string("Access-Control-Allow-Origin", "https://frontend.example.test"))
                 .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
 
+        mockMvc.perform(options("/api/posts/synthetic-post-id/favorite")
+                        .header("Origin", "https://frontend.example.test")
+                        .header("Access-Control-Request-Method", "PUT")
+                        .header("Access-Control-Request-Headers", "content-type,x-csrf-token"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://frontend.example.test"));
+
         mockMvc.perform(options("/api/imports")
                         .header("Origin", "https://untrusted.example.test")
                         .header("Access-Control-Request-Method", "POST"))
@@ -313,6 +325,17 @@ class InstagramImportIntegrationTest {
                 .andReturn();
         return objectMapper.readTree(csrfResult.getResponse().getContentAsString())
                 .get("token").asText();
+    }
+
+    private void setFavorite(UUID postId, boolean favorite) throws Exception {
+        MockHttpSession session = authenticatedSession();
+        mockMvc.perform(MockMvcRequestBuilders.put("/api/posts/{postId}/favorite", postId)
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"favorite\":" + favorite + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(favorite));
     }
 
     private ResultActions upload(byte[] content) throws Exception {

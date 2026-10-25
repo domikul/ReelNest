@@ -15,7 +15,8 @@ public class PostLibraryService {
             new PostDto(
                     resultSet.getObject("id", UUID.class),
                     resultSet.getString("original_url"),
-                    resultSet.getTimestamp("saved_at").toInstant());
+                    resultSet.getTimestamp("saved_at").toInstant(),
+                    resultSet.getBoolean("favorite"));
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -26,8 +27,9 @@ public class PostLibraryService {
     public PostPageResponse findPosts(int page, int size) {
         long offset = (long) page * size;
         List<PostDto> posts = jdbcTemplate.query(
-                "SELECT id, original_url, saved_at FROM posts "
-                        + "ORDER BY saved_at DESC, id DESC LIMIT ? OFFSET ?",
+                "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite "
+                        + "FROM posts p LEFT JOIN post_favorites f ON f.post_id = p.id "
+                        + "ORDER BY p.saved_at DESC, p.id DESC LIMIT ? OFFSET ?",
                 POST_MAPPER,
                 size,
                 offset);
@@ -48,9 +50,25 @@ public class PostLibraryService {
 
     public Optional<PostDto> findPost(UUID id) {
         List<PostDto> posts = jdbcTemplate.query(
-                "SELECT id, original_url, saved_at FROM posts WHERE id = ?",
+                "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite "
+                        + "FROM posts p LEFT JOIN post_favorites f ON f.post_id = p.id WHERE p.id = ?",
                 POST_MAPPER,
                 id);
         return posts.stream().findFirst();
+    }
+
+    public Optional<PostDto> setFavorite(UUID id, boolean favorite) {
+        if (favorite) {
+            jdbcTemplate.update(
+                    "INSERT INTO post_favorites (post_id) "
+                            + "SELECT id FROM posts WHERE id = ? "
+                            + "ON CONFLICT (post_id) DO NOTHING",
+                    id);
+        } else {
+            jdbcTemplate.update(
+                    "DELETE FROM post_favorites WHERE post_id = ?",
+                    id);
+        }
+        return findPost(id);
     }
 }

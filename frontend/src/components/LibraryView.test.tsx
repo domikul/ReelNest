@@ -9,12 +9,14 @@ const firstPost = {
   id: '00000000-0000-0000-0000-000000000001',
   originalUrl: 'https://www.instagram.com/p/synthetic-post-1/',
   savedAt: '2026-01-03T00:00:00Z',
+  favorite: false,
 }
 
 const secondPost = {
   id: '00000000-0000-0000-0000-000000000002',
   originalUrl: 'https://www.instagram.com/p/synthetic-post-2/',
   savedAt: '2026-01-02T00:00:00Z',
+  favorite: false,
 }
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -42,7 +44,13 @@ function libraryPage(
 }
 
 function renderLibrary(onSessionExpired = vi.fn(), onOpenImport = vi.fn()) {
-  render(<LibraryView onSessionExpired={onSessionExpired} onOpenImport={onOpenImport} />)
+  render(
+    <LibraryView
+      csrfToken="synthetic-csrf-token"
+      onSessionExpired={onSessionExpired}
+      onOpenImport={onOpenImport}
+    />,
+  )
   return { onSessionExpired, onOpenImport }
 }
 
@@ -67,12 +75,12 @@ describe('protected paginated library', () => {
     const user = userEvent.setup()
     renderLibrary()
 
-    expect(await screen.findByRole('button', { name: /Open saved post/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'View post details' })).toBeInTheDocument()
     expect(screen.getByText('Page 1 of 2')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     expect(await screen.findByText('Page 2 of 2')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Open saved post from/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View post details' })).toBeInTheDocument()
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       '/api/posts?page=0&size=20',
       '/api/posts?page=1&size=20',
@@ -88,7 +96,7 @@ describe('protected paginated library', () => {
     const user = userEvent.setup()
     renderLibrary()
 
-    await user.click(await screen.findByRole('button', { name: /Open saved post/ }))
+    await user.click(await screen.findByRole('button', { name: 'View post details' }))
 
     expect(await screen.findByRole('heading', { name: 'Instagram post' })).toBeInTheDocument()
     expect(screen.getAllByText('Not available in this import')).toHaveLength(3)
@@ -103,6 +111,74 @@ describe('protected paginated library', () => {
       `/api/posts/${firstPost.id}`,
       expect.objectContaining({ method: 'GET', credentials: 'include' }),
     )
+  })
+
+  it('sets and removes favorite state from a card and from post details', async () => {
+    let favorite = false
+    fetchMock.mockImplementation(async (input, options) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([{ ...firstPost, favorite }]))
+      }
+      if (path.endsWith('/favorite')) {
+        favorite = JSON.parse(String(options?.body)).favorite
+        return jsonResponse({ ...firstPost, favorite })
+      }
+      return jsonResponse({ ...firstPost, favorite })
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await user.click(await screen.findByRole('button', { name: 'Add to favorites' }))
+    expect(await screen.findByRole('button', { name: 'Remove from favorites' }))
+      .toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(screen.getByRole('button', { name: 'View post details' }))
+    expect(await screen.findByRole('heading', { name: 'Instagram post' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Remove from favorites' }))
+    expect(await screen.findByRole('button', { name: 'Add to favorites' }))
+      .toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(screen.getByRole('button', { name: 'Back to library' }))
+    expect(await screen.findByRole('button', { name: 'Add to favorites' }))
+      .toHaveAttribute('aria-pressed', 'false')
+
+    const favoriteRequests = fetchMock.mock.calls.filter(
+      ([url, options]) => String(url).endsWith('/favorite') && options?.method === 'PUT',
+    )
+    expect(favoriteRequests).toHaveLength(2)
+    expect(favoriteRequests[0][1]).toEqual(expect.objectContaining({
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': 'synthetic-csrf-token',
+      },
+      body: '{"favorite":true}',
+    }))
+    expect(favoriteRequests[1][1]).toEqual(expect.objectContaining({
+      body: '{"favorite":false}',
+    }))
+  })
+
+  it('keeps the previous favorite state and allows retry when saving fails', async () => {
+    fetchMock.mockImplementation(async (_input, options) => {
+      if (options?.method === 'PUT') {
+        return jsonResponse({ detail: 'Sensitive persistence failure.' }, 503)
+      }
+      return jsonResponse(libraryPage([firstPost]))
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    await user.click(await screen.findByRole('button', { name: 'Add to favorites' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The library service is unavailable. Please try again.',
+    )
+    const favoriteButton = screen.getByRole('button', { name: 'Add to favorites' })
+    expect(favoriteButton).toHaveAttribute('aria-pressed', 'false')
+    expect(favoriteButton).toBeEnabled()
+    expect(screen.queryByText('Sensitive persistence failure.')).not.toBeInTheDocument()
   })
 
   it('shows an empty-library state and offers the import flow', async () => {
@@ -127,7 +203,7 @@ describe('protected paginated library', () => {
     await screen.findByRole('heading', { name: 'No posts on this page' })
 
     await user.click(screen.getByRole('button', { name: 'Return to the first page' }))
-    expect(await screen.findByRole('button', { name: /Open saved post/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'View post details' })).toBeInTheDocument()
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       '/api/posts?page=0&size=20',
       '/api/posts?page=1&size=20',
@@ -147,7 +223,7 @@ describe('protected paginated library', () => {
     )
     expect(screen.queryByText('Synthetic private response text.')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Retry' }))
-    expect(await screen.findByRole('button', { name: /Open saved post/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'View post details' })).toBeInTheDocument()
   })
 
   it('returns to sign-in when the protected API reports an expired session', async () => {

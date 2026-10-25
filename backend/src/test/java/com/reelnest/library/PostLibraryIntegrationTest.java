@@ -12,6 +12,7 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -20,6 +21,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -55,7 +57,7 @@ class PostLibraryIntegrationTest {
 
     @BeforeEach
     void clearDatabase() {
-        jdbcTemplate.execute("TRUNCATE TABLE import_jobs, posts");
+        jdbcTemplate.execute("TRUNCATE TABLE import_jobs, post_favorites, posts");
     }
 
     @Test
@@ -130,6 +132,37 @@ class PostLibraryIntegrationTest {
     }
 
     @Test
+    void setsAndRemovesFavoritesIdempotentlyAndReturnsPersistentState() throws Exception {
+        UUID postId = insertPost(1, "2026-02-12T10:15:30Z");
+        MockHttpSession session = authenticatedSession();
+
+        setFavorite(session, postId, true)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(true));
+        setFavorite(session, postId, true)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(true));
+        mockMvc.perform(get("/api/posts/{postId}", postId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(true));
+        mockMvc.perform(get("/api/posts").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].favorite").value(true));
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_favorites", Integer.class));
+
+        setFavorite(session, postId, false)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(false));
+        setFavorite(session, postId, false)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(false));
+        mockMvc.perform(get("/api/posts/{postId}", postId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(false));
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_favorites", Integer.class));
+    }
+
+    @Test
     void protectsBothLibraryEndpointsAndRejectsInvalidPagination() throws Exception {
         UUID postId = insertPost(1, "2026-01-01T00:00:00Z");
         mockMvc.perform(get("/api/posts"))
@@ -137,10 +170,48 @@ class PostLibraryIntegrationTest {
         mockMvc.perform(get("/api/posts/{postId}", postId))
                 .andExpect(status().isUnauthorized());
 
+        var csrfResult = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk())
+                .andReturn();
+        MockHttpSession anonymousSession = (MockHttpSession) csrfResult.getRequest().getSession(false);
+        String csrfToken = objectMapper.readTree(csrfResult.getResponse().getContentAsString())
+                .get("token").asText();
+        mockMvc.perform(put("/api/posts/{postId}/favorite", postId)
+                        .session(anonymousSession)
+                        .header("X-CSRF-TOKEN", csrfToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"favorite\":true}"))
+                .andExpect(status().isUnauthorized());
+
         MockHttpSession session = authenticatedSession();
+        mockMvc.perform(put("/api/posts/{postId}/favorite", postId)
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"favorite\":true}"))
+                .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/posts").param("page", "-1").session(session))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/posts").param("size", "101").session(session))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void favoriteEndpointReturnsNotFoundAndValidatesRequestBody() throws Exception {
+        MockHttpSession session = authenticatedSession();
+        UUID missingPostId = UUID.randomUUID();
+        mockMvc.perform(put("/api/posts/{postId}/favorite", missingPostId)
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"favorite\":true}"))
+                .andExpect(status().isNotFound());
+
+        UUID postId = insertPost(1, "2026-01-01T00:00:00Z");
+        mockMvc.perform(put("/api/posts/{postId}/favorite", postId)
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -175,5 +246,21 @@ class PostLibraryIntegrationTest {
                                 """))
                 .andExpect(status().isOk());
         return session;
+    }
+
+    private ResultActions setFavorite(MockHttpSession session, UUID postId, boolean favorite) throws Exception {
+        return mockMvc.perform(put("/api/posts/{postId}/favorite", postId)
+                .session(session)
+                .header("X-CSRF-TOKEN", csrfToken(session))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"favorite\":" + favorite + "}"));
+    }
+
+    private String csrfToken(MockHttpSession session) throws Exception {
+        var csrfResult = mockMvc.perform(get("/api/auth/csrf").session(session))
+                .andExpect(status().isOk())
+                .andReturn();
+        return objectMapper.readTree(csrfResult.getResponse().getContentAsString())
+                .get("token").asText();
     }
 }

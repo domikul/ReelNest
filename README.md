@@ -101,10 +101,13 @@ integration tests use separate `reelnest_import_test` and
 `REELNEST_TEST_DATABASE_URL` to use a different test database URL.
 
 The protected library API uses `GET /api/posts?page=0&size=20` for
-server-side pagination (page numbering starts at zero; page sizes are 1–100)
-and `GET /api/posts/{id}` for details. Current imported records provide a saved
-date and original Instagram URL; captions, creator details, post type, and
-thumbnails are not available in the stored importer metadata.
+server-side pagination (page numbering starts at zero; page sizes are 1–100),
+`GET /api/posts/{id}` for details, and
+`PUT /api/posts/{id}/favorite` with `{"favorite":true}` or
+`{"favorite":false}` to set favorite state idempotently. Current imported
+records provide a saved date and original Instagram URL; captions, creator
+details, post type, and thumbnails are not available in the stored importer
+metadata.
 
 ## Environment variables
 
@@ -142,7 +145,7 @@ same-origin. For a cross-site frontend deployment, use
 ## Scope and next milestones
 
 The backend importer accepts the observed saved-post export format, and the
-library currently displays imported saved dates and original post links.
-Collections, favorites, notes, categories, search, viewing, watch sessions, and
-the full application database schema belong to later milestones. No personal
-Instagram export data is required or included in Git.
+library currently displays imported saved dates, original post links, and
+persistent favorites. Collections, notes, categories, search, viewing, watch
+sessions, and the full application database schema belong to later milestones.
+No personal Instagram export data is required or included in Git.

@@ -668,6 +668,65 @@ h1 {
   line-height: 1.5;
 }
 
+.library-post-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.favorite-control {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.favorite-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.81rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.favorite-button > span {
+  color: #a14452;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.favorite-button.is-favorite {
+  border-color: color-mix(in srgb, #a14452 35%, var(--border));
+  background: color-mix(in srgb, #a14452 9%, var(--surface));
+}
+
+.favorite-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.favorite-button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  outline-offset: 3px;
+}
+
+.favorite-error {
+  max-width: 240px;
+  margin: 0;
+  color: #985147;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .library-empty,
 .library-error {
   display: grid;
@@ -892,6 +951,11 @@ h1 {
 
   .post-detail-preview {
     min-height: 220px;
+  }
+
+  .library-post-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .pagination {

@@ -204,9 +204,10 @@ function App() {
         </div>
       </section>
 
-      {authState === 'authenticated' && (
+      {authState === 'authenticated' && csrfToken && (
         <LibraryView
           key={libraryRefreshKey}
+          csrfToken={csrfToken}
           onSessionExpired={handleSessionExpired}
           onOpenImport={handleOpenImport}
         />

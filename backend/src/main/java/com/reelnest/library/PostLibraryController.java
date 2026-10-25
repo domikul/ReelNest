@@ -4,6 +4,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,5 +46,20 @@ public class PostLibraryController {
         return postLibraryService.findPost(postId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/{postId}/favorite")
+    public ResponseEntity<PostDto> setFavorite(
+            @PathVariable UUID postId,
+            @RequestBody FavoriteRequest request) {
+        if (request == null || request.favorite() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Favorite must be true or false.");
+        }
+        return postLibraryService.setFavorite(postId, request.favorite())
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    public record FavoriteRequest(Boolean favorite) {
     }
 }

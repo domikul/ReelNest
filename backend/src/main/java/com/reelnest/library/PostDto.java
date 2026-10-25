@@ -6,5 +6,6 @@ import java.util.UUID;
 public record PostDto(
         UUID id,
         String originalUrl,
-        Instant savedAt) {
+        Instant savedAt,
+        boolean favorite) {
 }
