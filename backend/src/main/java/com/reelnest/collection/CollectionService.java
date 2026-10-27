@@ -39,43 +39,46 @@ public class CollectionService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public List<CollectionDto> findCollections() {
+    public List<CollectionDto> findCollections(UUID accountId) {
         return jdbcTemplate.query(
                 "SELECT c.id, c.name, c.created_at, c.updated_at, COUNT(cp.post_id) AS post_count "
-                        + "FROM collections c LEFT JOIN collection_posts cp ON cp.collection_id = c.id "
-                        + "GROUP BY c.id ORDER BY LOWER(c.name), c.id",
-                COLLECTION_MAPPER);
+                        + "FROM collections c LEFT JOIN collection_posts cp "
+                        + "ON cp.collection_id = c.id AND cp.account_id = c.account_id "
+                        + "WHERE c.account_id = ? GROUP BY c.id ORDER BY LOWER(c.name), c.id",
+                COLLECTION_MAPPER,
+                accountId);
     }
 
-    public CollectionDto createCollection(String name) {
+    public CollectionDto createCollection(UUID accountId, String name) {
         UUID id = UUID.randomUUID();
         try {
-            jdbcTemplate.update("INSERT INTO collections (id, name) VALUES (?, ?)", id, name);
+            jdbcTemplate.update("INSERT INTO collections (id, account_id, name) VALUES (?, ?, ?)", id, accountId, name);
         } catch (DuplicateKeyException exception) {
             throw duplicateNameException();
         }
-        return findCollection(id).orElseThrow(() ->
+        return findCollection(accountId, id).orElseThrow(() ->
                 new IllegalStateException("Created collection could not be loaded."));
     }
 
-    public Optional<CollectionDto> updateCollection(UUID id, String name) {
+    public Optional<CollectionDto> updateCollection(UUID accountId, UUID id, String name) {
         try {
             int updated = jdbcTemplate.update(
-                    "UPDATE collections SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    "UPDATE collections SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?",
                     name,
-                    id);
-            return updated == 0 ? Optional.empty() : findCollection(id);
+                    id,
+                    accountId);
+            return updated == 0 ? Optional.empty() : findCollection(accountId, id);
         } catch (DuplicateKeyException exception) {
             throw duplicateNameException();
         }
     }
 
-    public boolean deleteCollection(UUID id) {
-        return jdbcTemplate.update("DELETE FROM collections WHERE id = ?", id) > 0;
+    public boolean deleteCollection(UUID accountId, UUID id) {
+        return jdbcTemplate.update("DELETE FROM collections WHERE id = ? AND account_id = ?", id, accountId) > 0;
     }
 
-    public PostPageResponse findPosts(UUID collectionId, int page, int size) {
-        requireCollection(collectionId);
+    public PostPageResponse findPosts(UUID accountId, UUID collectionId, int page, int size) {
+        requireCollection(accountId, collectionId);
         long offset = (long) page * size;
         List<PostDto> posts = jdbcTemplate.query(
                 "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite, "
@@ -83,18 +86,20 @@ public class CollectionService {
                         + "THEN p.source_metadata ->> 'creatorUsername' END AS creator_username, "
                         + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
                         + "THEN p.source_metadata ->> 'caption' END AS caption "
-                        + "FROM posts p JOIN collection_posts cp ON cp.post_id = p.id "
-                        + "LEFT JOIN post_favorites f ON f.post_id = p.id "
-                        + "WHERE cp.collection_id = ? "
+                        + "FROM posts p JOIN collection_posts cp ON cp.post_id = p.id AND cp.account_id = p.account_id "
+                        + "LEFT JOIN post_favorites f ON f.post_id = p.id AND f.account_id = p.account_id "
+                        + "WHERE cp.collection_id = ? AND cp.account_id = ? "
                         + "ORDER BY p.saved_at DESC, p.id DESC LIMIT ? OFFSET ?",
                 POST_MAPPER,
                 collectionId,
+                accountId,
                 size,
                 offset);
         long totalElements = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM collection_posts WHERE collection_id = ?",
+                "SELECT COUNT(*) FROM collection_posts WHERE collection_id = ? AND account_id = ?",
                 Long.class,
-                collectionId);
+                collectionId,
+                accountId);
         long totalPages = totalElements == 0 ? 0 : 1 + (totalElements - 1) / size;
 
         return new PostPageResponse(
@@ -107,60 +112,66 @@ public class CollectionService {
                 page > 0);
     }
 
-    public List<CollectionDto> findPostCollections(UUID postId) {
-        requirePost(postId);
+    public List<CollectionDto> findPostCollections(UUID accountId, UUID postId) {
+        requirePost(accountId, postId);
         return jdbcTemplate.query(
                 "SELECT c.id, c.name, c.created_at, c.updated_at, "
                         + "(SELECT COUNT(*) FROM collection_posts all_posts "
-                        + "WHERE all_posts.collection_id = c.id) AS post_count "
+                        + "WHERE all_posts.collection_id = c.id AND all_posts.account_id = c.account_id) AS post_count "
                         + "FROM collections c JOIN collection_posts cp ON cp.collection_id = c.id "
-                        + "WHERE cp.post_id = ? ORDER BY LOWER(c.name), c.id",
+                        + "AND cp.account_id = c.account_id "
+                        + "WHERE cp.post_id = ? AND cp.account_id = ? ORDER BY LOWER(c.name), c.id",
                 COLLECTION_MAPPER,
-                postId);
+                postId,
+                accountId);
     }
 
-    public List<CollectionDto> setPostCollection(UUID postId, UUID collectionId, boolean assigned) {
-        requirePost(postId);
-        requireCollection(collectionId);
+    public List<CollectionDto> setPostCollection(UUID accountId, UUID postId, UUID collectionId, boolean assigned) {
+        requirePost(accountId, postId);
+        requireCollection(accountId, collectionId);
         if (assigned) {
             jdbcTemplate.update(
-                    "INSERT INTO collection_posts (collection_id, post_id) VALUES (?, ?) "
+                    "INSERT INTO collection_posts (collection_id, post_id, account_id) VALUES (?, ?, ?) "
                             + "ON CONFLICT (collection_id, post_id) DO NOTHING",
                     collectionId,
-                    postId);
+                    postId,
+                    accountId);
         } else {
             jdbcTemplate.update(
-                    "DELETE FROM collection_posts WHERE collection_id = ? AND post_id = ?",
+                    "DELETE FROM collection_posts WHERE collection_id = ? AND post_id = ? AND account_id = ?",
                     collectionId,
-                    postId);
+                    postId,
+                    accountId);
         }
-        return findPostCollections(postId);
+        return findPostCollections(accountId, postId);
     }
 
-    private Optional<CollectionDto> findCollection(UUID id) {
+    private Optional<CollectionDto> findCollection(UUID accountId, UUID id) {
         List<CollectionDto> collections = jdbcTemplate.query(
                 "SELECT c.id, c.name, c.created_at, c.updated_at, COUNT(cp.post_id) AS post_count "
-                        + "FROM collections c LEFT JOIN collection_posts cp ON cp.collection_id = c.id "
-                        + "WHERE c.id = ? GROUP BY c.id",
+                        + "FROM collections c LEFT JOIN collection_posts cp "
+                        + "ON cp.collection_id = c.id AND cp.account_id = c.account_id "
+                        + "WHERE c.id = ? AND c.account_id = ? GROUP BY c.id",
                 COLLECTION_MAPPER,
-                id);
+                id,
+                accountId);
         return collections.stream().findFirst();
     }
 
-    private void requirePost(UUID postId) {
-        if (!exists("SELECT EXISTS (SELECT 1 FROM posts WHERE id = ?)", postId)) {
+    private void requirePost(UUID accountId, UUID postId) {
+        if (!exists("SELECT EXISTS (SELECT 1 FROM posts WHERE id = ? AND account_id = ?)", postId, accountId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Post was not found.");
         }
     }
 
-    private void requireCollection(UUID collectionId) {
-        if (!exists("SELECT EXISTS (SELECT 1 FROM collections WHERE id = ?)", collectionId)) {
+    private void requireCollection(UUID accountId, UUID collectionId) {
+        if (!exists("SELECT EXISTS (SELECT 1 FROM collections WHERE id = ? AND account_id = ?)", collectionId, accountId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Collection was not found.");
         }
     }
 
-    private boolean exists(String query, UUID id) {
-        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(query, Boolean.class, id));
+    private boolean exists(String query, UUID id, UUID accountId) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(query, Boolean.class, id, accountId));
     }
 
     private ResponseStatusException duplicateNameException() {

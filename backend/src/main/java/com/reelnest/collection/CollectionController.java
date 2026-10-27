@@ -1,8 +1,10 @@
 package com.reelnest.collection;
 
 import com.reelnest.library.PostPageResponse;
+import com.reelnest.security.AccountPrincipal;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,58 +32,68 @@ public class CollectionController {
     }
 
     @GetMapping("/api/collections")
-    public List<CollectionDto> listCollections() {
-        return collectionService.findCollections();
+    public List<CollectionDto> listCollections(@AuthenticationPrincipal AccountPrincipal account) {
+        return collectionService.findCollections(account.accountId());
     }
 
     @PostMapping("/api/collections")
-    public ResponseEntity<CollectionDto> createCollection(@RequestBody CollectionRequest request) {
+    public ResponseEntity<CollectionDto> createCollection(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @RequestBody CollectionRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(collectionService.createCollection(validateName(request)));
+                .body(collectionService.createCollection(account.accountId(), validateName(request)));
     }
 
     @PutMapping("/api/collections/{collectionId}")
     public ResponseEntity<CollectionDto> updateCollection(
+            @AuthenticationPrincipal AccountPrincipal account,
             @PathVariable UUID collectionId,
             @RequestBody CollectionRequest request) {
-        return collectionService.updateCollection(collectionId, validateName(request))
+        return collectionService.updateCollection(account.accountId(), collectionId, validateName(request))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/api/collections/{collectionId}")
-    public ResponseEntity<Void> deleteCollection(@PathVariable UUID collectionId) {
-        return collectionService.deleteCollection(collectionId)
+    public ResponseEntity<Void> deleteCollection(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @PathVariable UUID collectionId) {
+        return collectionService.deleteCollection(account.accountId(), collectionId)
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
     }
 
     @GetMapping("/api/collections/{collectionId}/posts")
     public PostPageResponse listCollectionPosts(
+            @AuthenticationPrincipal AccountPrincipal account,
             @PathVariable UUID collectionId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         validatePagination(page, size);
-        return collectionService.findPosts(collectionId, page, size);
+        return collectionService.findPosts(account.accountId(), collectionId, page, size);
     }
 
     @GetMapping("/api/posts/{postId}/collections")
-    public List<CollectionDto> listPostCollections(@PathVariable UUID postId) {
-        return collectionService.findPostCollections(postId);
+    public List<CollectionDto> listPostCollections(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @PathVariable UUID postId) {
+        return collectionService.findPostCollections(account.accountId(), postId);
     }
 
     @PutMapping("/api/posts/{postId}/collections/{collectionId}")
     public List<CollectionDto> addPostToCollection(
+            @AuthenticationPrincipal AccountPrincipal account,
             @PathVariable UUID postId,
             @PathVariable UUID collectionId) {
-        return collectionService.setPostCollection(postId, collectionId, true);
+        return collectionService.setPostCollection(account.accountId(), postId, collectionId, true);
     }
 
     @DeleteMapping("/api/posts/{postId}/collections/{collectionId}")
     public List<CollectionDto> removePostFromCollection(
+            @AuthenticationPrincipal AccountPrincipal account,
             @PathVariable UUID postId,
             @PathVariable UUID collectionId) {
-        return collectionService.setPostCollection(postId, collectionId, false);
+        return collectionService.setPostCollection(account.accountId(), postId, collectionId, false);
     }
 
     private void validatePagination(int page, int size) {

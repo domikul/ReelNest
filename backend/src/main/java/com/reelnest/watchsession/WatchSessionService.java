@@ -46,26 +46,29 @@ public class WatchSessionService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public List<WatchSessionSummaryDto> findSessions() {
+    public List<WatchSessionSummaryDto> findSessions(UUID accountId) {
         return List.copyOf(jdbcTemplate.query(
                 "SELECT s.id, s.name, s.created_at, s.completed_at, "
                         + "LEAST(s.current_position, COUNT(sp.post_id)) AS current_position, "
                         + "COUNT(sp.post_id) AS post_count "
                         + "FROM watch_sessions s "
-                        + "JOIN watch_session_posts sp ON sp.session_id = s.id "
-                        + "GROUP BY s.id "
+                        + "JOIN watch_session_posts sp ON sp.session_id = s.id AND sp.account_id = s.account_id "
+                        + "WHERE s.account_id = ? GROUP BY s.id "
                         + "ORDER BY s.created_at DESC, s.id DESC LIMIT ?",
                 SUMMARY_MAPPER,
+                accountId,
                 MAX_SESSION_LIST_SIZE));
     }
 
-    public Optional<WatchSessionDto> findSession(UUID sessionId) {
+    public Optional<WatchSessionDto> findSession(UUID accountId, UUID sessionId) {
         List<WatchSessionSummaryDto> summaries = jdbcTemplate.query(
                 "SELECT s.id, s.name, s.created_at, s.completed_at, s.current_position, "
-                        + "(SELECT COUNT(*) FROM watch_session_posts sp WHERE sp.session_id = s.id) AS post_count "
-                        + "FROM watch_sessions s WHERE s.id = ?",
+                        + "(SELECT COUNT(*) FROM watch_session_posts sp WHERE sp.session_id = s.id "
+                        + "AND sp.account_id = s.account_id) AS post_count "
+                        + "FROM watch_sessions s WHERE s.id = ? AND s.account_id = ?",
                 SUMMARY_MAPPER,
-                sessionId);
+                sessionId,
+                accountId);
         if (summaries.isEmpty()) {
             return Optional.empty();
         }
@@ -78,11 +81,12 @@ public class WatchSessionService {
                         + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
                         + "THEN p.source_metadata ->> 'caption' END AS caption "
                         + "FROM watch_session_posts sp "
-                        + "JOIN posts p ON p.id = sp.post_id "
-                        + "LEFT JOIN post_favorites f ON f.post_id = p.id "
-                        + "WHERE sp.session_id = ? ORDER BY sp.sort_order",
+                        + "JOIN posts p ON p.id = sp.post_id AND p.account_id = sp.account_id "
+                        + "LEFT JOIN post_favorites f ON f.post_id = p.id AND f.account_id = p.account_id "
+                        + "WHERE sp.session_id = ? AND sp.account_id = ? ORDER BY sp.sort_order",
                 POST_MAPPER,
-                sessionId);
+                sessionId,
+                accountId);
         return Optional.of(new WatchSessionDto(
                 summary.id(),
                 summary.name(),
@@ -94,7 +98,7 @@ public class WatchSessionService {
     }
 
     @Transactional
-    public WatchSessionDto createSession(String name, List<UUID> postIds) {
+    public WatchSessionDto createSession(UUID accountId, String name, List<UUID> postIds) {
         if (postIds == null || postIds.isEmpty() || postIds.size() > MAX_SESSION_POSTS) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -106,42 +110,46 @@ public class WatchSessionService {
 
         String postPlaceholders = postIds.stream().map(ignored -> "?").collect(Collectors.joining(", "));
         long matchingPosts = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM posts WHERE id IN (" + postPlaceholders + ")",
+                "SELECT COUNT(*) FROM posts WHERE account_id = ? AND id IN (" + postPlaceholders + ")",
                 Long.class,
-                postIds.toArray());
+                createPostQueryParameters(accountId, postIds));
         if (matchingPosts != postIds.size()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Every selected post must be saved in the library.");
         }
 
         UUID sessionId = UUID.randomUUID();
         jdbcTemplate.update(
-                "INSERT INTO watch_sessions (id, name) VALUES (?, ?)",
+                "INSERT INTO watch_sessions (id, account_id, name) VALUES (?, ?, ?)",
                 sessionId,
+                accountId,
                 name);
         for (int position = 0; position < postIds.size(); position++) {
             jdbcTemplate.update(
-                    "INSERT INTO watch_session_posts (session_id, post_id, sort_order) VALUES (?, ?, ?)",
+                    "INSERT INTO watch_session_posts (session_id, post_id, sort_order, account_id) VALUES (?, ?, ?, ?)",
                     sessionId,
                     postIds.get(position),
-                    position);
+                    position,
+                    accountId);
         }
-        return findSession(sessionId).orElseThrow(() ->
+        return findSession(accountId, sessionId).orElseThrow(() ->
                 new IllegalStateException("Created watch session could not be loaded."));
     }
 
     @Transactional
-    public Optional<WatchSessionDto> updateProgress(UUID sessionId, int currentPosition) {
+    public Optional<WatchSessionDto> updateProgress(UUID accountId, UUID sessionId, int currentPosition) {
         boolean sessionExists = Boolean.TRUE.equals(jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM watch_sessions WHERE id = ?)",
+                "SELECT EXISTS (SELECT 1 FROM watch_sessions WHERE id = ? AND account_id = ?)",
                 Boolean.class,
-                sessionId));
+                sessionId,
+                accountId));
         if (!sessionExists) {
             return Optional.empty();
         }
         Integer postCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM watch_session_posts WHERE session_id = ?",
+                "SELECT COUNT(*) FROM watch_session_posts WHERE session_id = ? AND account_id = ?",
                 Integer.class,
-                sessionId);
+                sessionId,
+                accountId);
         if (currentPosition < 0 || currentPosition > postCount) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -150,11 +158,21 @@ public class WatchSessionService {
         jdbcTemplate.update(
                 "UPDATE watch_sessions SET current_position = ?, "
                         + "completed_at = CASE WHEN ? = ? THEN CURRENT_TIMESTAMP ELSE NULL END "
-                        + "WHERE id = ?",
+                        + "WHERE id = ? AND account_id = ?",
                 currentPosition,
                 currentPosition,
                 postCount,
-                sessionId);
-        return findSession(sessionId);
+                sessionId,
+                accountId);
+        return findSession(accountId, sessionId);
+    }
+
+    private Object[] createPostQueryParameters(UUID accountId, List<UUID> postIds) {
+        Object[] parameters = new Object[postIds.size() + 1];
+        parameters[0] = accountId;
+        for (int index = 0; index < postIds.size(); index++) {
+            parameters[index + 1] = postIds.get(index);
+        }
+        return parameters;
     }
 }

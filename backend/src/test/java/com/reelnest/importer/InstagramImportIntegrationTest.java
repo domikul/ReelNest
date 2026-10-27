@@ -1,5 +1,7 @@
 package com.reelnest.importer;
 
+import com.reelnest.IntegrationAccountSupport;
+import com.reelnest.security.AuthenticationController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +16,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -25,6 +28,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -40,8 +44,6 @@ class InstagramImportIntegrationTest {
         registry.add("spring.datasource.url", InstagramImportIntegrationTest::testDatabaseUrl);
         registry.add("spring.flyway.schemas", () -> "reelnest_import_test");
         registry.add("spring.flyway.default-schema", () -> "reelnest_import_test");
-        registry.add("reelnest.auth.username", () -> "integration-user");
-        registry.add("reelnest.auth.password", () -> "integration-password-long-enough");
         registry.add("reelnest.cors.allowed-origins", () -> "https://frontend.example.test");
     }
 
@@ -65,11 +67,19 @@ class InstagramImportIntegrationTest {
     @Autowired
     private Environment environment;
 
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    private UUID accountId;
+
     @BeforeEach
     void clearDatabase() {
         jdbcTemplate.execute(
                 "TRUNCATE TABLE import_jobs, watch_session_posts, watch_sessions, post_view_history, post_categories, categories, collection_posts, collections, "
                         + "post_notes, post_favorites, posts");
+        jdbcTemplate.update("DELETE FROM accounts");
+        accountId = IntegrationAccountSupport.createAccount(
+                jdbcTemplate, passwordEncoder, "integration-user", "integration-password-long-enough");
     }
 
     @Test
@@ -292,6 +302,126 @@ class InstagramImportIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.authenticated").value(true));
         mockMvc.perform(get("/api/imports/{importId}", UUID.randomUUID()).session(session))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void registrationStoresOnlyBcryptHashAndRejectsDuplicateUsernamesRegardlessOfCase() throws Exception {
+        String password = "registration-test-password";
+        MockHttpSession session = new MockHttpSession();
+        mockMvc.perform(get("/api/auth/csrf").session(session)).andExpect(status().isOk());
+
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/auth/register")
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new AuthenticationController.LoginRequest("new-account", password))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.authenticated").value(true))
+                .andExpect(jsonPath("$.username").value("new-account"));
+        mockMvc.perform(get("/api/auth/session").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("new-account"));
+
+        String passwordHash = jdbcTemplate.queryForObject(
+                "SELECT password_hash FROM accounts WHERE LOWER(username) = LOWER(?)",
+                String.class,
+                "new-account");
+        assertTrue(passwordHash.startsWith("$2"));
+        assertTrue(passwordEncoder.matches(password, passwordHash));
+        assertNotEquals(password, passwordHash);
+
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/auth/register")
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new AuthenticationController.LoginRequest("New-Account", password))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("That username is already taken."));
+    }
+
+    @Test
+    void privatePostsAreNotVisibleAcrossAccounts() throws Exception {
+        MockHttpSession otherAccount = new MockHttpSession();
+        mockMvc.perform(get("/api/auth/csrf").session(otherAccount)).andExpect(status().isOk());
+        mockMvc.perform(MockMvcRequestBuilders.post("/api/auth/register")
+                        .session(otherAccount)
+                        .header("X-CSRF-TOKEN", csrfToken(otherAccount))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"username":"second-account","password":"another-long-test-password"}
+                                """))
+                .andExpect(status().isCreated());
+
+        UUID otherPostId = UUID.randomUUID();
+        String url = "https://www.instagram.com/p/second-account-post/";
+        jdbcTemplate.update(
+                "INSERT INTO posts (id, account_id, source_identifier, original_url, canonical_url, saved_at, source_metadata) "
+                        + "VALUES (?, (SELECT id FROM accounts WHERE username = ?), ?, ?, ?, ?, '[]'::jsonb)",
+                otherPostId,
+                "second-account",
+                "second-account-post",
+                url,
+                url.substring(0, url.length() - 1),
+                Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")));
+        UUID otherAccountId = jdbcTemplate.queryForObject(
+                "SELECT id FROM accounts WHERE username = ?",
+                UUID.class,
+                "second-account");
+        UUID otherCategoryId = UUID.randomUUID();
+        UUID otherCollectionId = UUID.randomUUID();
+        UUID otherWatchSessionId = UUID.randomUUID();
+        UUID otherImportId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO categories (id, account_id, name) VALUES (?, ?, ?)",
+                otherCategoryId,
+                otherAccountId,
+                "private-category");
+        jdbcTemplate.update(
+                "INSERT INTO collections (id, account_id, name) VALUES (?, ?, ?)",
+                otherCollectionId,
+                otherAccountId,
+                "private-collection");
+        jdbcTemplate.update(
+                "INSERT INTO collection_posts (collection_id, post_id, account_id) VALUES (?, ?, ?)",
+                otherCollectionId,
+                otherPostId,
+                otherAccountId);
+        jdbcTemplate.update(
+                "INSERT INTO watch_sessions (id, account_id, name) VALUES (?, ?, ?)",
+                otherWatchSessionId,
+                otherAccountId,
+                "private-session");
+        jdbcTemplate.update(
+                "INSERT INTO watch_session_posts (session_id, post_id, sort_order, account_id) VALUES (?, ?, ?, ?)",
+                otherWatchSessionId,
+                otherPostId,
+                0,
+                otherAccountId);
+        jdbcTemplate.update(
+                "INSERT INTO import_jobs (id, account_id, status, added_count, updated_count, skipped_count, error_count) "
+                        + "VALUES (?, ?, 'COMPLETED', 0, 0, 0, 0)",
+                otherImportId,
+                otherAccountId);
+
+        MockHttpSession firstAccount = authenticatedSession();
+        mockMvc.perform(get("/api/posts/{postId}", otherPostId).session(firstAccount))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/posts/{postId}/notes", otherPostId).session(firstAccount))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/posts").session(firstAccount))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        mockMvc.perform(get("/api/categories").session(firstAccount))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+        mockMvc.perform(get("/api/collections/{collectionId}/posts", otherCollectionId).session(firstAccount))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/watch-sessions/{sessionId}", otherWatchSessionId).session(firstAccount))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/imports/{importId}", otherImportId).session(firstAccount))
                 .andExpect(status().isNotFound());
     }
 

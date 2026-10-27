@@ -1,5 +1,6 @@
 package com.reelnest.library;
 
+import com.reelnest.IntegrationAccountSupport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -37,8 +39,6 @@ class PostLibraryIntegrationTest {
         registry.add("spring.datasource.url", PostLibraryIntegrationTest::testDatabaseUrl);
         registry.add("spring.flyway.schemas", () -> "reelnest_library_test");
         registry.add("spring.flyway.default-schema", () -> "reelnest_library_test");
-        registry.add("reelnest.auth.username", () -> "library-test-user");
-        registry.add("reelnest.auth.password", () -> "library-test-password-long-enough");
     }
 
     private static String testDatabaseUrl() {
@@ -58,11 +58,19 @@ class PostLibraryIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    private UUID accountId;
+
     @BeforeEach
     void clearDatabase() {
         jdbcTemplate.execute(
                 "TRUNCATE TABLE import_jobs, watch_session_posts, watch_sessions, post_view_history, post_categories, categories, collection_posts, collections, "
                         + "post_notes, post_favorites, posts");
+        jdbcTemplate.update("DELETE FROM accounts");
+        accountId = IntegrationAccountSupport.createAccount(
+                jdbcTemplate, passwordEncoder, "library-test-user", "library-test-password-long-enough");
     }
 
     @Test
@@ -200,26 +208,41 @@ class PostLibraryIntegrationTest {
         UUID noteMatch = insertPost(2, "2026-01-02T00:00:00Z");
         UUID categorizedMatch = insertPost(3, "2026-01-03T00:00:00Z");
         jdbcTemplate.update(
-                "UPDATE posts SET source_metadata = ?::jsonb WHERE id = ?",
+                "UPDATE posts SET source_metadata = ?::jsonb WHERE id = ? AND account_id = ?",
                 "[{\"label\":\"saved_post\",\"value\":\"waterfall\"}]",
-                sourceMatch);
+                sourceMatch,
+                accountId);
         jdbcTemplate.update(
-                "INSERT INTO post_notes (post_id, note) VALUES (?, ?)",
+                "INSERT INTO post_notes (post_id, account_id, note) VALUES (?, ?, ?)",
                 noteMatch,
+                accountId,
                 "wildflower");
         UUID categoryId = UUID.randomUUID();
-        jdbcTemplate.update("INSERT INTO categories (id, name) VALUES (?, ?)", categoryId, "cliffside");
         jdbcTemplate.update(
-                "INSERT INTO post_categories (post_id, category_id) VALUES (?, ?)",
+                "INSERT INTO categories (id, account_id, name) VALUES (?, ?, ?)",
+                categoryId,
+                accountId,
+                "cliffside");
+        jdbcTemplate.update(
+                "INSERT INTO post_categories (post_id, category_id, account_id) VALUES (?, ?, ?)",
                 categorizedMatch,
-                categoryId);
+                categoryId,
+                accountId);
         UUID collectionId = UUID.randomUUID();
-        jdbcTemplate.update("INSERT INTO collections (id, name) VALUES (?, ?)", collectionId, "outdoors");
         jdbcTemplate.update(
-                "INSERT INTO collection_posts (collection_id, post_id) VALUES (?, ?)",
+                "INSERT INTO collections (id, account_id, name) VALUES (?, ?, ?)",
                 collectionId,
-                categorizedMatch);
-        jdbcTemplate.update("INSERT INTO post_favorites (post_id) VALUES (?)", categorizedMatch);
+                accountId,
+                "outdoors");
+        jdbcTemplate.update(
+                "INSERT INTO collection_posts (collection_id, post_id, account_id) VALUES (?, ?, ?)",
+                collectionId,
+                categorizedMatch,
+                accountId);
+        jdbcTemplate.update(
+                "INSERT INTO post_favorites (post_id, account_id) VALUES (?, ?)",
+                categorizedMatch,
+                accountId);
         MockHttpSession session = authenticatedSession();
 
         mockMvc.perform(get("/api/posts").param("q", "waterfall").session(session))
@@ -467,9 +490,10 @@ class PostLibraryIntegrationTest {
         String identifier = "synthetic-library-post-" + number;
         String url = "https://www.instagram.com/p/synthetic-post-" + number + "/";
         jdbcTemplate.update(
-                "INSERT INTO posts (id, source_identifier, original_url, canonical_url, saved_at, source_metadata) "
-                        + "VALUES (?, ?, ?, ?, ?, '[]'::jsonb)",
+                "INSERT INTO posts (id, account_id, source_identifier, original_url, canonical_url, saved_at, source_metadata) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, '[]'::jsonb)",
                 id,
+                accountId,
                 identifier,
                 url,
                 url.substring(0, url.length() - 1),

@@ -46,7 +46,7 @@ public class InstagramImportService {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    public ImportSummary importSavedPosts(byte[] content, ZoneId timeZone) {
+    public ImportSummary importSavedPosts(UUID accountId, byte[] content, ZoneId timeZone) {
         InstagramSavedPostsParser.ParsedImport parsedImport = parser.parse(content, timeZone);
         UUID importId = UUID.randomUUID();
         Instant createdAt = Instant.now();
@@ -56,13 +56,14 @@ public class InstagramImportService {
         int skipped = 0;
 
         jdbcTemplate.update(
-                "INSERT INTO import_jobs (id, status, added_count, updated_count, skipped_count, error_count, errors) "
-                        + "VALUES (?, 'IN_PROGRESS', 0, 0, 0, 0, '[]'::jsonb)",
-                importId);
+                "INSERT INTO import_jobs (id, account_id, status, added_count, updated_count, skipped_count, error_count, errors) "
+                        + "VALUES (?, ?, 'IN_PROGRESS', 0, 0, 0, 0, '[]'::jsonb)",
+                importId,
+                accountId);
 
         for (InstagramSavedPostsParser.ParsedPost post : parsedImport.posts()) {
             try {
-                UpsertResult result = transactionTemplate.execute(status -> upsert(post));
+                UpsertResult result = transactionTemplate.execute(status -> upsert(accountId, post));
                 if (result == null) {
                     throw new IllegalStateException("Post import transaction returned no result.");
                 }
@@ -85,22 +86,23 @@ public class InstagramImportService {
         String serializedErrors = serializeErrors(errors);
         jdbcTemplate.update(
                 "UPDATE import_jobs SET status = ?, added_count = ?, updated_count = ?, skipped_count = ?, "
-                        + "error_count = ?, errors = CAST(? AS jsonb) WHERE id = ?",
+                        + "error_count = ?, errors = CAST(? AS jsonb) WHERE id = ? AND account_id = ?",
                 status,
                 added,
                 updated,
                 skipped,
                 errors.size(),
                 serializedErrors,
-                importId);
+                importId,
+                accountId);
 
         return new ImportSummary(importId, status, added, updated, skipped, errors.size(), List.copyOf(errors), createdAt);
     }
 
-    public Optional<ImportSummary> findImport(UUID importId) {
+    public Optional<ImportSummary> findImport(UUID accountId, UUID importId) {
         List<ImportSummary> results = jdbcTemplate.query(
                 "SELECT id, status, added_count, updated_count, skipped_count, error_count, errors::text, created_at "
-                        + "FROM import_jobs WHERE id = ?",
+                        + "FROM import_jobs WHERE id = ? AND account_id = ?",
                 (resultSet, rowNumber) -> new ImportSummary(
                         resultSet.getObject("id", UUID.class),
                         resultSet.getString("status"),
@@ -110,15 +112,17 @@ public class InstagramImportService {
                         resultSet.getInt("error_count"),
                         deserializeErrors(resultSet.getString("errors")),
                         resultSet.getTimestamp("created_at").toInstant()),
-                importId);
+                importId,
+                accountId);
         return results.stream().findFirst();
     }
 
-    private UpsertResult upsert(InstagramSavedPostsParser.ParsedPost post) {
+    private UpsertResult upsert(UUID accountId, InstagramSavedPostsParser.ParsedPost post) {
         List<ExistingPost> matches = jdbcTemplate.query(
                 "SELECT id, source_identifier, original_url, canonical_url, saved_at, source_metadata::text "
-                        + "FROM posts WHERE source_identifier = ? OR canonical_url = ? FOR UPDATE",
+                        + "FROM posts WHERE account_id = ? AND (source_identifier = ? OR canonical_url = ?) FOR UPDATE",
                 EXISTING_POST_MAPPER,
+                accountId,
                 post.sourceIdentifier(),
                 post.canonicalUrl());
 
@@ -129,9 +133,10 @@ public class InstagramImportService {
         String metadata = serialize(post.sourceMetadata());
         if (matches.isEmpty()) {
             jdbcTemplate.update(
-                    "INSERT INTO posts (id, source_identifier, original_url, canonical_url, saved_at, source_metadata) "
-                            + "VALUES (?, ?, ?, ?, ?, CAST(? AS jsonb))",
+                    "INSERT INTO posts (id, account_id, source_identifier, original_url, canonical_url, saved_at, source_metadata) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, CAST(? AS jsonb))",
                     UUID.randomUUID(),
+                    accountId,
                     post.sourceIdentifier(),
                     post.originalUrl(),
                     post.canonicalUrl(),
@@ -151,13 +156,14 @@ public class InstagramImportService {
 
         jdbcTemplate.update(
                 "UPDATE posts SET source_identifier = ?, original_url = ?, canonical_url = ?, saved_at = ?, "
-                        + "source_metadata = CAST(? AS jsonb), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        + "source_metadata = CAST(? AS jsonb), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?",
                 post.sourceIdentifier(),
                 post.originalUrl(),
                 post.canonicalUrl(),
                 Timestamp.from(post.savedAt()),
                 metadata,
-                existing.id());
+                existing.id(),
+                accountId);
         return UpsertResult.UPDATED;
     }
 

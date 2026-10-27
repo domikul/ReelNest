@@ -10,11 +10,8 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
@@ -34,23 +31,6 @@ public class SecurityConfiguration {
     @Bean
     PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder(12);
-    }
-
-    @Bean
-    UserDetailsService userDetailsService(
-            PasswordEncoder passwordEncoder,
-            @Value("${reelnest.auth.username:}") String username,
-            @Value("${reelnest.auth.password:}") String password) {
-        if (username.isBlank() || password.length() < 12) {
-            throw new IllegalStateException(
-                    "Set REELNEST_USERNAME and a REELNEST_PASSWORD of at least 12 characters.");
-        }
-
-        return new InMemoryUserDetailsManager(
-                User.withUsername(username.trim())
-                        .password(passwordEncoder.encode(password))
-                        .roles("USER")
-                        .build());
     }
 
     @Bean
@@ -111,7 +91,7 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.GET, "/api/health", "/api/auth/csrf", "/api/auth/session")
                         .permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/logout")
+                        .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/register", "/api/auth/logout")
                         .permitAll()
                         .anyRequest()
                         .authenticated())

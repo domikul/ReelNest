@@ -1,5 +1,6 @@
 export interface SessionStatus {
   authenticated: boolean
+  username: string | null
 }
 
 export class AuthApiError extends Error {
@@ -27,6 +28,23 @@ async function requestJson(path: string, options?: RequestInit): Promise<unknown
   if (!response.ok) {
     if (response.status === 401) {
       throw new AuthApiError('Your sign-in details were not accepted.', response.status)
+    }
+    if (response.status === 400 || response.status === 409) {
+      try {
+        const payload: unknown = await response.json()
+        if (
+          typeof payload === 'object' &&
+          payload !== null &&
+          'detail' in payload &&
+          typeof payload.detail === 'string'
+        ) {
+          throw new AuthApiError(payload.detail, response.status)
+        }
+      } catch (cause) {
+        if (cause instanceof AuthApiError) {
+          throw cause
+        }
+      }
     }
     throw new AuthApiError(
       response.status >= 500
@@ -67,11 +85,13 @@ export async function getSessionStatus(): Promise<SessionStatus> {
     typeof payload !== 'object' ||
     payload === null ||
     !('authenticated' in payload) ||
-    typeof payload.authenticated !== 'boolean'
+    typeof payload.authenticated !== 'boolean' ||
+    !('username' in payload) ||
+    (payload.username !== null && typeof payload.username !== 'string')
   ) {
     throw new AuthApiError('The server returned an unexpected session status.')
   }
-  return { authenticated: payload.authenticated }
+  return { authenticated: payload.authenticated, username: payload.username }
 }
 
 export async function signIn(
@@ -81,6 +101,23 @@ export async function signIn(
 ): Promise<void> {
   const request = (token: string) =>
     requestJson('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': token,
+      },
+      body: JSON.stringify({ username, password }),
+    })
+  await retryWithFreshCsrfToken(request, csrfToken)
+}
+
+export async function register(
+  username: string,
+  password: string,
+  csrfToken: string,
+): Promise<void> {
+  const request = (token: string) =>
+    requestJson('/api/auth/register', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -1,8 +1,10 @@
 package com.reelnest.importer;
 
+import com.reelnest.security.AccountPrincipal;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,6 +31,7 @@ public class InstagramImportController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ImportSummary> importSavedPosts(
+            @AuthenticationPrincipal AccountPrincipal account,
             @RequestPart("file") MultipartFile file,
             @RequestParam(required = false) String timeZone) {
         if (file.isEmpty()) {
@@ -38,15 +41,15 @@ public class InstagramImportController {
         ZoneId zoneId = resolveTimeZone(timeZone);
         try {
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(importService.importSavedPosts(file.getBytes(), zoneId));
+                    .body(importService.importSavedPosts(account.accountId(), file.getBytes(), zoneId));
         } catch (IOException exception) {
             throw new ImportValidationException(HttpStatus.BAD_REQUEST, "Upload could not be read.");
         }
     }
 
     @GetMapping("/{importId}")
-    public ImportSummary getImport(@PathVariable UUID importId) {
-        return importService.findImport(importId)
+    public ImportSummary getImport(@AuthenticationPrincipal AccountPrincipal account, @PathVariable UUID importId) {
+        return importService.findImport(account.accountId(), importId)
                 .orElseThrow(() -> new ImportValidationException(HttpStatus.NOT_FOUND, "Import job was not found."));
     }
 

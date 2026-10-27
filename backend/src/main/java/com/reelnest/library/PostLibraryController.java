@@ -1,7 +1,9 @@
 package com.reelnest.library;
 
+import com.reelnest.security.AccountPrincipal;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,6 +36,7 @@ public class PostLibraryController {
 
     @GetMapping
     public PostPageResponse listPosts(
+            @AuthenticationPrincipal AccountPrincipal account,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(name = "q", required = false) String query,
@@ -49,6 +52,7 @@ public class PostLibraryController {
                     "Page size must be between 1 and " + MAX_PAGE_SIZE + ".");
         }
         return postLibraryService.findPosts(
+                account.accountId(),
                 page,
                 size,
                 validateSearchQuery(query),
@@ -59,25 +63,30 @@ public class PostLibraryController {
 
     @GetMapping("/recently-watched")
     public List<RecentlyWatchedPostDto> listRecentlyWatched(
+            @AuthenticationPrincipal AccountPrincipal account,
             @RequestParam(defaultValue = "" + DEFAULT_RECENTLY_WATCHED_SIZE) int size) {
         if (size < 1 || size > MAX_RECENTLY_WATCHED_SIZE) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Recently watched size must be between 1 and " + MAX_RECENTLY_WATCHED_SIZE + ".");
         }
-        return postLibraryService.findRecentlyWatched(size);
+        return postLibraryService.findRecentlyWatched(account.accountId(), size);
     }
 
     @GetMapping("/{postId}")
-    public ResponseEntity<PostDto> getPost(@PathVariable UUID postId) {
-        return postLibraryService.findPost(postId)
+    public ResponseEntity<PostDto> getPost(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @PathVariable UUID postId) {
+        return postLibraryService.findPost(account.accountId(), postId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{postId}/view")
-    public ResponseEntity<Void> recordView(@PathVariable UUID postId) {
-        if (!postLibraryService.recordView(postId)) {
+    public ResponseEntity<Void> recordView(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @PathVariable UUID postId) {
+        if (!postLibraryService.recordView(account.accountId(), postId)) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.noContent().build();
@@ -85,25 +94,29 @@ public class PostLibraryController {
 
     @PutMapping("/{postId}/favorite")
     public ResponseEntity<PostDto> setFavorite(
+            @AuthenticationPrincipal AccountPrincipal account,
             @PathVariable UUID postId,
             @RequestBody FavoriteRequest request) {
         if (request == null || request.favorite() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Favorite must be true or false.");
         }
-        return postLibraryService.setFavorite(postId, request.favorite())
+        return postLibraryService.setFavorite(account.accountId(), postId, request.favorite())
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/{postId}/notes")
-    public ResponseEntity<PostNoteDto> getNote(@PathVariable UUID postId) {
-        return postLibraryService.findNote(postId)
+    public ResponseEntity<PostNoteDto> getNote(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @PathVariable UUID postId) {
+        return postLibraryService.findNote(account.accountId(), postId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{postId}/notes")
     public ResponseEntity<PostNoteDto> saveNote(
+            @AuthenticationPrincipal AccountPrincipal account,
             @PathVariable UUID postId,
             @RequestBody NoteRequest request) {
         if (request == null || request.note() == null || request.note().isBlank()) {
@@ -114,14 +127,16 @@ public class PostLibraryController {
                     HttpStatus.BAD_REQUEST,
                     "Note must be no longer than " + MAX_NOTE_LENGTH + " characters.");
         }
-        return postLibraryService.saveNote(postId, request.note())
+        return postLibraryService.saveNote(account.accountId(), postId, request.note())
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{postId}/notes")
-    public ResponseEntity<Void> deleteNote(@PathVariable UUID postId) {
-        return postLibraryService.deleteNote(postId)
+    public ResponseEntity<Void> deleteNote(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @PathVariable UUID postId) {
+        return postLibraryService.deleteNote(account.accountId(), postId)
                 .map(ignored -> ResponseEntity.noContent().<Void>build())
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

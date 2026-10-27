@@ -27,89 +27,96 @@ public class CategoryService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public List<CategoryDto> findCategories() {
+    public List<CategoryDto> findCategories(UUID accountId) {
         return jdbcTemplate.query(
-                "SELECT id, name, created_at, updated_at FROM categories ORDER BY LOWER(name), id",
-                CATEGORY_MAPPER);
+                "SELECT id, name, created_at, updated_at FROM categories WHERE account_id = ? ORDER BY LOWER(name), id",
+                CATEGORY_MAPPER,
+                accountId);
     }
 
-    public CategoryDto createCategory(String name) {
+    public CategoryDto createCategory(UUID accountId, String name) {
         UUID id = UUID.randomUUID();
         try {
-            jdbcTemplate.update("INSERT INTO categories (id, name) VALUES (?, ?)", id, name);
+            jdbcTemplate.update("INSERT INTO categories (id, account_id, name) VALUES (?, ?, ?)", id, accountId, name);
         } catch (DuplicateKeyException exception) {
             throw duplicateNameException();
         }
-        return findCategory(id).orElseThrow(() ->
+        return findCategory(accountId, id).orElseThrow(() ->
                 new IllegalStateException("Created category could not be loaded."));
     }
 
-    public Optional<CategoryDto> updateCategory(UUID id, String name) {
+    public Optional<CategoryDto> updateCategory(UUID accountId, UUID id, String name) {
         try {
             int updated = jdbcTemplate.update(
-                    "UPDATE categories SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    "UPDATE categories SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_id = ?",
                     name,
-                    id);
-            return updated == 0 ? Optional.empty() : findCategory(id);
+                    id,
+                    accountId);
+            return updated == 0 ? Optional.empty() : findCategory(accountId, id);
         } catch (DuplicateKeyException exception) {
             throw duplicateNameException();
         }
     }
 
-    public boolean deleteCategory(UUID id) {
-        return jdbcTemplate.update("DELETE FROM categories WHERE id = ?", id) > 0;
+    public boolean deleteCategory(UUID accountId, UUID id) {
+        return jdbcTemplate.update("DELETE FROM categories WHERE id = ? AND account_id = ?", id, accountId) > 0;
     }
 
-    public List<CategoryDto> findPostCategories(UUID postId) {
-        requirePost(postId);
-        return categoriesForPost(postId);
+    public List<CategoryDto> findPostCategories(UUID accountId, UUID postId) {
+        requirePost(accountId, postId);
+        return categoriesForPost(accountId, postId);
     }
 
-    public List<CategoryDto> setPostCategory(UUID postId, UUID categoryId, boolean assigned) {
-        requirePost(postId);
-        if (!exists("SELECT EXISTS (SELECT 1 FROM categories WHERE id = ?)", categoryId)) {
+    public List<CategoryDto> setPostCategory(UUID accountId, UUID postId, UUID categoryId, boolean assigned) {
+        requirePost(accountId, postId);
+        if (!exists("SELECT EXISTS (SELECT 1 FROM categories WHERE id = ? AND account_id = ?)", categoryId, accountId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Category was not found.");
         }
         if (assigned) {
             jdbcTemplate.update(
-                    "INSERT INTO post_categories (post_id, category_id) VALUES (?, ?) "
+                    "INSERT INTO post_categories (post_id, category_id, account_id) VALUES (?, ?, ?) "
                             + "ON CONFLICT (post_id, category_id) DO NOTHING",
                     postId,
-                    categoryId);
+                    categoryId,
+                    accountId);
         } else {
             jdbcTemplate.update(
-                    "DELETE FROM post_categories WHERE post_id = ? AND category_id = ?",
+                    "DELETE FROM post_categories WHERE post_id = ? AND category_id = ? AND account_id = ?",
                     postId,
-                    categoryId);
+                    categoryId,
+                    accountId);
         }
-        return categoriesForPost(postId);
+        return categoriesForPost(accountId, postId);
     }
 
-    private Optional<CategoryDto> findCategory(UUID id) {
+    private Optional<CategoryDto> findCategory(UUID accountId, UUID id) {
         List<CategoryDto> categories = jdbcTemplate.query(
-                "SELECT id, name, created_at, updated_at FROM categories WHERE id = ?",
+                "SELECT id, name, created_at, updated_at FROM categories WHERE id = ? AND account_id = ?",
                 CATEGORY_MAPPER,
-                id);
+                id,
+                accountId);
         return categories.stream().findFirst();
     }
 
-    private List<CategoryDto> categoriesForPost(UUID postId) {
+    private List<CategoryDto> categoriesForPost(UUID accountId, UUID postId) {
         return jdbcTemplate.query(
                 "SELECT c.id, c.name, c.created_at, c.updated_at "
-                        + "FROM categories c JOIN post_categories pc ON pc.category_id = c.id "
-                        + "WHERE pc.post_id = ? ORDER BY LOWER(c.name), c.id",
+                        + "FROM categories c JOIN post_categories pc "
+                        + "ON pc.category_id = c.id AND pc.account_id = c.account_id "
+                        + "WHERE pc.post_id = ? AND pc.account_id = ? ORDER BY LOWER(c.name), c.id",
                 CATEGORY_MAPPER,
-                postId);
+                postId,
+                accountId);
     }
 
-    private void requirePost(UUID postId) {
-        if (!exists("SELECT EXISTS (SELECT 1 FROM posts WHERE id = ?)", postId)) {
+    private void requirePost(UUID accountId, UUID postId) {
+        if (!exists("SELECT EXISTS (SELECT 1 FROM posts WHERE id = ? AND account_id = ?)", postId, accountId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Post was not found.");
         }
     }
 
-    private boolean exists(String query, UUID id) {
-        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(query, Boolean.class, id));
+    private boolean exists(String query, UUID id, UUID accountId) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(query, Boolean.class, id, accountId));
     }
 
     private ResponseStatusException duplicateNameException() {

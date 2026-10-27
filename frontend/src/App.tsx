@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AuthApiError, getCsrfToken, getSessionStatus, signIn, signOut } from './api/auth'
+import { AuthApiError, getCsrfToken, getSessionStatus, register, signIn, signOut } from './api/auth'
 import ImportPanel from './components/ImportPanel'
 import LibraryView from './components/LibraryView'
 import SignInForm from './components/SignInForm'
@@ -18,6 +18,7 @@ function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [authState, setAuthState] = useState<AuthState>('checking')
   const [csrfToken, setCsrfToken] = useState<string | null>(null)
+  const [username, setUsername] = useState<string | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
   const [authNotice, setAuthNotice] = useState<string | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
@@ -35,9 +36,11 @@ function App() {
       const token = await getCsrfToken()
       const session = await getSessionStatus()
       setCsrfToken(token)
+      setUsername(session.username)
       setAuthState(session.authenticated ? 'authenticated' : 'anonymous')
     } catch (cause) {
       setCsrfToken(null)
+      setUsername(null)
       setAuthState('unavailable')
       setAuthError(
         cause instanceof AuthApiError
@@ -63,6 +66,7 @@ function App() {
         throw new AuthApiError('Sign-in could not be confirmed. Please retry.')
       }
       setCsrfToken(nextToken)
+      setUsername(session.username)
       setAuthState('authenticated')
       setAuthNotice(null)
     } catch (cause) {
@@ -76,6 +80,32 @@ function App() {
     }
   }
 
+  async function handleRegister(username: string, password: string) {
+    setAuthBusy(true)
+    setAuthError(null)
+    try {
+      const token = csrfToken ?? (await getCsrfToken())
+      await register(username, password, token)
+      const nextToken = await getCsrfToken()
+      const session = await getSessionStatus()
+      if (!session.authenticated) {
+        throw new AuthApiError('Account creation could not be confirmed. Please retry.')
+      }
+      setCsrfToken(nextToken)
+      setUsername(session.username)
+      setAuthState('authenticated')
+      setAuthNotice(null)
+    } catch (cause) {
+      setAuthError(
+        cause instanceof AuthApiError
+          ? cause.message
+          : 'Account creation could not be completed. Please retry.',
+      )
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
   async function handleSignOut() {
     setAuthBusy(true)
     setAuthError(null)
@@ -83,6 +113,7 @@ function App() {
       const token = csrfToken ?? (await getCsrfToken())
       await signOut(token)
       setCsrfToken(null)
+      setUsername(null)
       setAuthState('anonymous')
       setAuthNotice('You have signed out.')
     } catch (cause) {
@@ -98,6 +129,7 @@ function App() {
 
   const handleSessionExpired = useCallback(() => {
     setCsrfToken(null)
+    setUsername(null)
     setAuthState('anonymous')
     setAuthNotice('Your session expired. Sign in again to continue.')
     setAuthError(null)
@@ -137,6 +169,9 @@ function App() {
             <option value="dark">Dark</option>
           </select>
         </label>
+        {authState === 'authenticated' && (
+          <span className="account-name">{username}</span>
+        )}
         {authState === 'authenticated' && (
           <button
             className="sign-out-button"
@@ -181,7 +216,13 @@ function App() {
               busy={authBusy}
               notice={authNotice}
               error={authError}
-              onSubmit={(username, password) => void handleSignIn(username, password)}
+              onSubmit={(mode, submittedUsername, password) => {
+                if (mode === 'register') {
+                  void handleRegister(submittedUsername, password)
+                } else {
+                  void handleSignIn(submittedUsername, password)
+                }
+              }}
             />
           )}
           {authState === 'unavailable' && (

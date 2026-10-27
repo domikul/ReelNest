@@ -1,10 +1,9 @@
 # ReelNest
 
 ReelNest is a private home for saved Instagram content, designed for
-intentional browsing instead of an endless feed. The project currently
-includes a secured single-user sign-in, a saved-post export importer, and a
-paginated library with post details. Other product features are planned for
-later milestones.
+intentional browsing instead of an endless feed. It includes account
+registration and sign-in, an Instagram saved-post export importer, a paginated
+library, and related personal content-management features.
 
 ## Project layout
 
@@ -27,35 +26,17 @@ later milestones.
    docker compose up -d db
    ```
 
-2. Configure the single ReelNest user's credentials in the PowerShell session
-   that will run the backend. The password is prompted without echo and is
-   exposed to this session and the child processes it starts:
-
-   ```powershell
-   $env:REELNEST_USERNAME = Read-Host "ReelNest username"
-   $secret = Read-Host "ReelNest password" -AsSecureString
-   $secretPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
-   try {
-     $env:REELNEST_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretPointer)
-   } finally {
-     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretPointer)
-   }
-   ```
-
-   Use a unique password of at least 12 characters. Do not put credentials in
-   source files, command history, or committed configuration.
-
-3. In that same terminal at the repository root, start the backend:
+2. In a terminal at the repository root, start the backend:
 
    ```sh
    mvn -f backend/pom.xml spring-boot:run
    ```
 
    Spring Boot applies the Flyway migration at startup. The health endpoint is
-   available at <http://localhost:8080/api/health>; sign-in is required for
-   imports, library, and other private API requests.
+   available at <http://localhost:8080/api/health>. Flyway creates the
+   database schema, including the accounts table, on startup.
 
-4. In another terminal, start the frontend:
+3. In another terminal, start the frontend:
 
    ```sh
    cd frontend
@@ -63,14 +44,18 @@ later milestones.
    npm run dev
    ```
 
-   Open the local URL printed by Vite (usually <http://localhost:5173>). Use
-   your configured credentials to sign in, then use the theme selector to
-   choose light, dark, or system appearance. Stop the backend, then clear its
-   credential variables from that PowerShell session:
+   Open the local URL printed by Vite (usually <http://localhost:5173>).
+   Select **Create an account** to register; usernames are 3–32 letters or
+   numbers, with periods, underscores, and hyphens also allowed. Passwords
+   must be at least 12 characters and no more than 72 UTF-8 bytes. Choose
+   light, dark, or system appearance from the theme selector.
 
-   ```powershell
-   Remove-Item Env:REELNEST_USERNAME, Env:REELNEST_PASSWORD
-   ```
+The backend also exposes `POST /api/auth/register` and
+`POST /api/auth/login` with JSON `username` and `password` fields. Obtain a
+CSRF token from `GET /api/auth/csrf` and send it in the `X-CSRF-TOKEN` header
+for either request. `GET /api/auth/session` reports the current account
+identity; `POST /api/auth/logout` ends the session and also requires a CSRF
+token.
 
 Stop the database with `docker compose down`. Database data is kept in the
 `postgres_data` Docker volume; to remove that local data, run
@@ -99,6 +84,12 @@ Backend tests include PostgreSQL integration coverage. Start the database with
 integration tests use separate `reelnest_import_test` and
 `reelnest_library_test` schemas and do not truncate the development schema. Set
 `REELNEST_TEST_DATABASE_URL` to use a different test database URL.
+
+Accounts are stored in PostgreSQL. Passwords are hashed with BCrypt and are
+never returned by the API. Existing posts and related records remain
+unassigned by the account-ownership migration and are not visible to newly
+registered accounts; move legacy data to an account only through a deliberate
+manual database migration.
 
 The protected library API uses `GET /api/posts?page=0&size=20` for
 server-side pagination (page numbering starts at zero; page sizes are 1–100),
@@ -192,16 +183,13 @@ deployed environment.
 | `DATABASE_USERNAME` | Backend | `reelnest` | Database user |
 | `DATABASE_PASSWORD` | Backend | `local_dev_password` | Database password |
 | `SERVER_PORT` | Backend | `8080` | Backend HTTP port |
-| `REELNEST_USERNAME` | Backend | Required; no default | The single allowed user's username |
-| `REELNEST_PASSWORD` | Backend | Required; no default | User password; minimum 12 characters |
 | `REELNEST_CORS_ALLOWED_ORIGINS` | Backend | Empty (same-origin only) | Comma-separated exact origins allowed to make credentialed API requests |
 | `REELNEST_SESSION_TIMEOUT` | Backend | `30m` | Server-side session idle timeout |
 | `REELNEST_COOKIE_SECURE` | Backend | `true` | Restricts the session cookie to secure transport |
 | `REELNEST_COOKIE_SAME_SITE` | Backend | `strict` | Session-cookie SameSite policy |
 
-Set backend variables in the environment where the Maven command runs. The
-password is required and must be at least 12 characters. Production deployments
-must terminate TLS at the application or a trusted reverse proxy. Set
+Set backend variables in the environment where the Maven command runs.
+Production deployments must terminate TLS at the application or a trusted reverse proxy. Set
 Compose variables in that command's environment or in an untracked root `.env`
 file. In deployment, provide credentials through a secret manager and configure
 only trusted frontend origins; wildcard CORS origins are rejected. The session cookie is HTTP-only, secure by default, and restricted to
@@ -212,11 +200,9 @@ same-origin. For a cross-site frontend deployment, use
 
 ## Scope and next milestones
 
-The backend importer accepts the observed saved-post export format, and the
-library currently displays imported saved dates, original post links,
-persistent favorites, personal notes, and user-managed categories.
-User-managed collections, server-side library search, and recently watched
-history are available as well. The post viewer supports permitted Instagram
-embeds with original-post fallback; watch sessions and the full application
-database schema belong to later milestones.
+The backend importer accepts the saved-post export format; the library
+displays imported saved dates, original post links, captions, and creators.
+Favorites, notes, categories, collections, search, recently watched history,
+the post viewer, and watch sessions are scoped to the signed-in account. Future
+milestones can add more account management and data portability tools.
 No personal Instagram export data is required or included in Git.

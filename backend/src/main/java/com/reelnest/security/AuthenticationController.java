@@ -19,20 +19,24 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthenticationController {
 
     private final AuthenticationManager authenticationManager;
+    private final AccountRegistrationService accountRegistrationService;
     private final SecurityContextRepository securityContextRepository;
     private final CsrfTokenRepository csrfTokenRepository;
 
     public AuthenticationController(
             AuthenticationManager authenticationManager,
+            AccountRegistrationService accountRegistrationService,
             SecurityContextRepository securityContextRepository,
             CsrfTokenRepository csrfTokenRepository) {
         this.authenticationManager = authenticationManager;
+        this.accountRegistrationService = accountRegistrationService;
         this.securityContextRepository = securityContextRepository;
         this.csrfTokenRepository = csrfTokenRepository;
     }
@@ -44,10 +48,10 @@ public class AuthenticationController {
 
     @GetMapping("/session")
     public SessionResponse session(Authentication authentication) {
-        return new SessionResponse(
-                authentication != null
-                        && authentication.isAuthenticated()
-                        && !(authentication instanceof org.springframework.security.authentication.AnonymousAuthenticationToken));
+        boolean authenticated = authentication != null
+                && authentication.isAuthenticated()
+                && !(authentication instanceof org.springframework.security.authentication.AnonymousAuthenticationToken);
+        return new SessionResponse(authenticated, authenticated ? authentication.getName() : null);
     }
 
     @PostMapping("/login")
@@ -55,6 +59,9 @@ public class AuthenticationController {
             @RequestBody LoginRequest request,
             HttpServletRequest servletRequest,
             HttpServletResponse servletResponse) {
+        if (request == null) {
+            return validationError(HttpStatus.BAD_REQUEST, "Username and password are required.");
+        }
         if (request.username() == null || request.username().isBlank()
                 || request.password() == null || request.password().isEmpty()) {
             return validationError(HttpStatus.BAD_REQUEST, "Username and password are required.");
@@ -70,6 +77,37 @@ public class AuthenticationController {
             return validationError(HttpStatus.UNAUTHORIZED, "Username or password is incorrect.");
         }
 
+        return establishSession(authentication, HttpStatus.OK, servletRequest, servletResponse);
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<?> register(
+            @RequestBody LoginRequest request,
+            HttpServletRequest servletRequest,
+            HttpServletResponse servletResponse) {
+        if (request == null) {
+            return validationError(HttpStatus.BAD_REQUEST, "Username and password are required.");
+        }
+        AccountPrincipal account;
+        try {
+            account = accountRegistrationService.register(request.username(), request.password());
+        } catch (ResponseStatusException exception) {
+            return validationError(
+                    HttpStatus.valueOf(exception.getStatusCode().value()),
+                    exception.getReason() == null ? "Registration could not be completed." : exception.getReason());
+        }
+        Authentication authentication = UsernamePasswordAuthenticationToken.authenticated(
+                account,
+                null,
+                account.getAuthorities());
+        return establishSession(authentication, HttpStatus.CREATED, servletRequest, servletResponse);
+    }
+
+    private ResponseEntity<SessionResponse> establishSession(
+            Authentication authentication,
+            HttpStatus status,
+            HttpServletRequest servletRequest,
+            HttpServletResponse servletResponse) {
         servletRequest.getSession(true);
         servletRequest.changeSessionId();
         SecurityContext context = SecurityContextHolder.createEmptyContext();
@@ -77,7 +115,7 @@ public class AuthenticationController {
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, servletRequest, servletResponse);
         csrfTokenRepository.saveToken(null, servletRequest, servletResponse);
-        return ResponseEntity.ok(new SessionResponse(true));
+        return ResponseEntity.status(status).body(new SessionResponse(true, authentication.getName()));
     }
 
     private ResponseEntity<ProblemDetail> validationError(HttpStatus status, String detail) {
@@ -90,6 +128,6 @@ public class AuthenticationController {
     public record CsrfResponse(String token) {
     }
 
-    public record SessionResponse(boolean authenticated) {
+    public record SessionResponse(boolean authenticated, String username) {
     }
 }

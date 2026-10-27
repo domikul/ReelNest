@@ -1,5 +1,6 @@
 package com.reelnest.collection;
 
+import com.reelnest.IntegrationAccountSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -38,8 +40,6 @@ class CollectionIntegrationTest {
         registry.add("spring.datasource.url", CollectionIntegrationTest::testDatabaseUrl);
         registry.add("spring.flyway.schemas", () -> "reelnest_collection_test");
         registry.add("spring.flyway.default-schema", () -> "reelnest_collection_test");
-        registry.add("reelnest.auth.username", () -> "collection-test-user");
-        registry.add("reelnest.auth.password", () -> "collection-test-password-long-enough");
     }
 
     private static String testDatabaseUrl() {
@@ -59,11 +59,19 @@ class CollectionIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    private UUID accountId;
+
     @BeforeEach
     void clearDatabase() {
         jdbcTemplate.execute(
                 "TRUNCATE TABLE import_jobs, watch_session_posts, watch_sessions, post_view_history, collection_posts, collections, post_categories, categories, "
                         + "post_notes, post_favorites, posts");
+        jdbcTemplate.update("DELETE FROM accounts");
+        accountId = IntegrationAccountSupport.createAccount(
+                jdbcTemplate, passwordEncoder, "collection-test-user", "collection-test-password-long-enough");
     }
 
     @Test
@@ -259,9 +267,10 @@ class CollectionIntegrationTest {
         String identifier = "synthetic-collection-post-" + number;
         String url = "https://www.instagram.com/p/" + identifier + "/";
         jdbcTemplate.update(
-                "INSERT INTO posts (id, source_identifier, original_url, canonical_url, saved_at, source_metadata) "
-                        + "VALUES (?, ?, ?, ?, ?, '[]'::jsonb)",
+                "INSERT INTO posts (id, account_id, source_identifier, original_url, canonical_url, saved_at, source_metadata) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, '[]'::jsonb)",
                 id,
+                accountId,
                 identifier,
                 url,
                 url.substring(0, url.length() - 1),

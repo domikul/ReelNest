@@ -1,7 +1,9 @@
 package com.reelnest.category;
 
+import com.reelnest.security.AccountPrincipal;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,49 +29,58 @@ public class CategoryController {
     }
 
     @GetMapping("/api/categories")
-    public List<CategoryDto> listCategories() {
-        return categoryService.findCategories();
+    public List<CategoryDto> listCategories(@AuthenticationPrincipal AccountPrincipal account) {
+        return categoryService.findCategories(account.accountId());
     }
 
     @PostMapping("/api/categories")
-    public ResponseEntity<CategoryDto> createCategory(@RequestBody CategoryRequest request) {
+    public ResponseEntity<CategoryDto> createCategory(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @RequestBody CategoryRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(categoryService.createCategory(validateName(request)));
+                .body(categoryService.createCategory(account.accountId(), validateName(request)));
     }
 
     @PutMapping("/api/categories/{categoryId}")
     public ResponseEntity<CategoryDto> updateCategory(
+            @AuthenticationPrincipal AccountPrincipal account,
             @PathVariable UUID categoryId,
             @RequestBody CategoryRequest request) {
-        return categoryService.updateCategory(categoryId, validateName(request))
+        return categoryService.updateCategory(account.accountId(), categoryId, validateName(request))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/api/categories/{categoryId}")
-    public ResponseEntity<Void> deleteCategory(@PathVariable UUID categoryId) {
-        return categoryService.deleteCategory(categoryId)
+    public ResponseEntity<Void> deleteCategory(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @PathVariable UUID categoryId) {
+        return categoryService.deleteCategory(account.accountId(), categoryId)
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
     }
 
     @GetMapping("/api/posts/{postId}/categories")
-    public List<CategoryDto> listPostCategories(@PathVariable UUID postId) {
-        return categoryService.findPostCategories(postId);
+    public List<CategoryDto> listPostCategories(
+            @AuthenticationPrincipal AccountPrincipal account,
+            @PathVariable UUID postId) {
+        return categoryService.findPostCategories(account.accountId(), postId);
     }
 
     @PutMapping("/api/posts/{postId}/categories/{categoryId}")
     public List<CategoryDto> assignCategory(
+            @AuthenticationPrincipal AccountPrincipal account,
             @PathVariable UUID postId,
             @PathVariable UUID categoryId) {
-        return categoryService.setPostCategory(postId, categoryId, true);
+        return categoryService.setPostCategory(account.accountId(), postId, categoryId, true);
     }
 
     @DeleteMapping("/api/posts/{postId}/categories/{categoryId}")
     public List<CategoryDto> removeCategory(
+            @AuthenticationPrincipal AccountPrincipal account,
             @PathVariable UUID postId,
             @PathVariable UUID categoryId) {
-        return categoryService.setPostCategory(postId, categoryId, false);
+        return categoryService.setPostCategory(account.accountId(), postId, categoryId, false);
     }
 
     private String validateName(CategoryRequest request) {

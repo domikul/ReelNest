@@ -5,7 +5,9 @@ import App from './App'
 
 const fetchMock = vi.fn<typeof fetch>()
 let loggedIn = false
+let activeUsername: string | null = null
 let rejectLogin = false
+let rejectRegistration = false
 let rejectFirstLoginCsrf = false
 let rejectImport = false
 let csrfTokenSequence = ['synthetic-csrf-token']
@@ -23,7 +25,9 @@ describe('ReelNest application shell', () => {
     window.localStorage.clear()
     delete document.documentElement.dataset.theme
     loggedIn = false
+    activeUsername = null
     rejectLogin = false
+    rejectRegistration = false
     rejectFirstLoginCsrf = false
     rejectImport = false
     csrfTokenSequence = ['synthetic-csrf-token']
@@ -37,7 +41,7 @@ describe('ReelNest application shell', () => {
         return jsonResponse({ token })
       }
       if (path === '/api/auth/session') {
-        return jsonResponse({ authenticated: loggedIn })
+        return jsonResponse({ authenticated: loggedIn, username: activeUsername })
       }
       if (path === '/api/auth/login') {
         if (rejectFirstLoginCsrf) {
@@ -48,10 +52,20 @@ describe('ReelNest application shell', () => {
           return jsonResponse({ detail: 'Sensitive backend message.' }, 401)
         }
         loggedIn = true
-        return jsonResponse({ authenticated: true })
+        activeUsername = 'test-user'
+        return jsonResponse({ authenticated: true, username: 'test-user' })
+      }
+      if (path === '/api/auth/register') {
+        if (rejectRegistration) {
+          return jsonResponse({ detail: 'That username is already taken.' }, 409)
+        }
+        loggedIn = true
+        activeUsername = 'new-user'
+        return jsonResponse({ authenticated: true, username: 'new-user' }, 201)
       }
       if (path === '/api/auth/logout') {
         loggedIn = false
+        activeUsername = null
         return new Response(null, { status: 204 })
       }
       if (path.startsWith('/api/posts?')) {
@@ -171,6 +185,56 @@ describe('ReelNest application shell', () => {
     )
     expect(screen.queryByText('Sensitive backend message.')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled()
+  })
+
+  it('registers a new account and starts its private session', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'New to ReelNest? Create an account' }))
+    await user.type(screen.getByLabelText('Username'), 'new-user')
+    await user.type(screen.getByLabelText('Password'), 'a-long-test-password')
+    await user.type(screen.getByLabelText('Confirm password'), 'a-long-test-password')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(await screen.findByLabelText(/Instagram saved_posts export/)).toBeInTheDocument()
+    expect(screen.getByText('new-user')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/register',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ username: 'new-user', password: 'a-long-test-password' }),
+      }),
+    )
+  })
+
+  it('requires matching passwords before sending a registration request', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'New to ReelNest? Create an account' }))
+    await user.type(screen.getByLabelText('Username'), 'new-user')
+    await user.type(screen.getByLabelText('Password'), 'a-long-test-password')
+    await user.type(screen.getByLabelText('Confirm password'), 'different-password')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Passwords do not match.')
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/auth/register', expect.anything())
+  })
+
+  it('displays a safe registration conflict and keeps the form available', async () => {
+    const user = userEvent.setup()
+    rejectRegistration = true
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'New to ReelNest? Create an account' }))
+    await user.type(screen.getByLabelText('Username'), 'existing-user')
+    await user.type(screen.getByLabelText('Password'), 'a-long-test-password')
+    await user.type(screen.getByLabelText('Confirm password'), 'a-long-test-password')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('That username is already taken.')
+    expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
   })
 
   it('refreshes an expired CSRF token once before retrying sign-in', async () => {
