@@ -1136,6 +1136,12 @@ h1 {
   touch-action: pan-y;
 }
 
+.post-viewer-embed iframe {
+  width: min(100%, 400px);
+  min-height: 480px;
+  border: 0;
+}
+
 .post-viewer-navigation {
   display: flex;
   width: 100%;
@@ -1640,6 +1646,14 @@ h1 {
 }
 
 @media (max-width: 560px) {
+  button,
+  select,
+  input:not([type="checkbox"]):not([type="radio"]),
+  .topnav a,
+  .brand {
+    min-height: 44px;
+  }
+
   .watch-session-saved-item {
     align-items: stretch;
     flex-direction: column;
@@ -1664,26 +1678,36 @@ h1 {
   }
 
   .topbar {
+    column-gap: 8px;
+    flex-wrap: wrap;
     padding: 20px 0;
+    row-gap: 12px;
   }
 
   .topnav {
-    margin-right: 12px;
-    gap: 10px;
+    margin-right: 0;
+    gap: 8px;
   }
 
   .topnav a {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 4px;
     font-size: 0.82rem;
   }
 
   .sign-out-button {
-    min-height: 36px;
+    min-height: 44px;
     padding: 0 9px;
     font-size: 0.76rem;
   }
 
   .theme-picker {
     gap: 6px;
+  }
+
+  .theme-picker select {
+    min-height: 44px;
   }
 
   .theme-picker > span {
@@ -1713,8 +1737,13 @@ h1 {
   }
 
   .file-picker input {
-    width: 100%;
+    width: calc(100% - 60px);
+    max-width: 100%;
     margin-left: 60px;
+  }
+
+  .file-picker input::file-selector-button {
+    min-height: 44px;
   }
 
   .summary-counts {
@@ -1756,6 +1785,10 @@ h1 {
     flex-wrap: wrap;
   }
 
+  .library-filter-controls label {
+    flex-basis: 100%;
+  }
+
   .category-form-row {
     align-items: stretch;
     flex-direction: column;
@@ -1763,9 +1796,41 @@ h1 {
 
   .collection-form-row,
   .collection-post-item,
-  .collection-heading {
+  .collection-heading,
+  .category-list-item,
+  .collection-list-item,
+  .category-edit-form,
+  .collection-edit-form {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .category-edit-form input,
+  .collection-edit-form input {
+    width: 100%;
+  }
+
+  .category-list-actions,
+  .collection-list-actions {
+    justify-content: flex-start;
+  }
+
+  .collection-post-info a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .category-assignment,
+  .collection-assignment,
+  .watch-session-post-option {
+    min-height: 44px;
+  }
+
+  .category-assignment span,
+  .collection-assignment span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .collection-post-actions {
@@ -1780,5 +1845,6 @@ h1 {
 
   .pagination {
     gap: 10px;
+    flex-wrap: wrap;
   }
 }
