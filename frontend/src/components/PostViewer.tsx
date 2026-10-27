@@ -8,7 +8,10 @@ interface PostViewerProps {
   creatorUsername: string | null
   caption: string | null
   navigationPostIds?: string[]
-  onNavigatePost?: (postId: string) => void
+  onNavigatePost?: (postId: string) => void | Promise<void>
+  onComplete?: () => void | Promise<void>
+  navigationDisabled?: boolean
+  backLabel?: string
   onBack: () => void
 }
 
@@ -97,6 +100,9 @@ function PostViewer({
   caption,
   navigationPostIds = [],
   onNavigatePost,
+  onComplete,
+  navigationDisabled = false,
+  backLabel = 'Back to post details',
   onBack,
 }: PostViewerProps) {
   const mediaLayout = describePostType(postType)
@@ -107,14 +113,41 @@ function PostViewer({
   const [embedStatus, setEmbedStatus] = useState<EmbedStatus>(
     embedUrl ? 'loading' : 'unavailable',
   )
+  const [navigationBusy, setNavigationBusy] = useState(false)
+  const [navigationError, setNavigationError] = useState<string | null>(null)
   const currentPostIndex = navigationPostIds.indexOf(post.id)
   const canNavigate = currentPostIndex >= 0 && onNavigatePost !== undefined
   const previousPostId = canNavigate ? navigationPostIds[currentPostIndex - 1] : undefined
   const nextPostId = canNavigate ? navigationPostIds[currentPostIndex + 1] : undefined
+  const canComplete = canNavigate && currentPostIndex === navigationPostIds.length - 1 && onComplete !== undefined
 
-  function navigateTo(postId: string | undefined) {
-    if (postId) {
-      onNavigatePost?.(postId)
+  async function navigateTo(postId: string | undefined) {
+    if (!postId || !onNavigatePost || navigationBusy || navigationDisabled) {
+      return
+    }
+    setNavigationBusy(true)
+    setNavigationError(null)
+    try {
+      await onNavigatePost(postId)
+    } catch {
+      setNavigationError('Session progress could not be saved. Please retry.')
+    } finally {
+      setNavigationBusy(false)
+    }
+  }
+
+  async function completeSession() {
+    if (!onComplete || !canComplete || navigationBusy || navigationDisabled) {
+      return
+    }
+    setNavigationBusy(true)
+    setNavigationError(null)
+    try {
+      await onComplete()
+    } catch {
+      setNavigationError('Session completion could not be saved. Please retry.')
+    } finally {
+      setNavigationBusy(false)
     }
   }
 
@@ -138,7 +171,11 @@ function PostViewer({
     if (Math.abs(horizontalDistance) < 48 || Math.abs(horizontalDistance) <= Math.abs(verticalDistance)) {
       return
     }
-    navigateTo(horizontalDistance < 0 ? nextPostId : previousPostId)
+    if (horizontalDistance < 0 && canComplete) {
+      void completeSession()
+    } else {
+      void navigateTo(horizontalDistance < 0 ? nextPostId : previousPostId)
+    }
   }
 
   useEffect(() => {
@@ -202,21 +239,33 @@ function PostViewer({
 
       if (event.key === 'ArrowLeft' && previousPostId) {
         event.preventDefault()
-        navigateTo(previousPostId)
+        void navigateTo(previousPostId)
       } else if (event.key === 'ArrowRight' && nextPostId) {
         event.preventDefault()
-        navigateTo(nextPostId)
+        void navigateTo(nextPostId)
+      } else if (event.key === 'ArrowRight' && canComplete) {
+        event.preventDefault()
+        void completeSession()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [canNavigate, nextPostId, onNavigatePost, previousPostId])
+  }, [
+    canComplete,
+    canNavigate,
+    navigationBusy,
+    navigationDisabled,
+    nextPostId,
+    onComplete,
+    onNavigatePost,
+    previousPostId,
+  ])
 
   return (
     <section className="post-viewer" aria-labelledby="post-details-title">
       <button className="text-button" type="button" onClick={onBack}>
-        Back to post details
+        {backLabel}
       </button>
       <header className="post-viewer-heading">
         <p className="eyebrow">Single-post viewer</p>
@@ -259,8 +308,8 @@ function PostViewer({
           <button
             className="secondary-button"
             type="button"
-            disabled={!previousPostId}
-            onClick={() => navigateTo(previousPostId)}
+            disabled={!previousPostId || navigationBusy || navigationDisabled}
+            onClick={() => void navigateTo(previousPostId)}
           >
             Previous post
           </button>
@@ -277,14 +326,22 @@ function PostViewer({
           <button
             className="secondary-button"
             type="button"
-            disabled={!nextPostId}
-            onClick={() => navigateTo(nextPostId)}
+            disabled={(!nextPostId && !canComplete) || navigationBusy || navigationDisabled}
+            onClick={() => canComplete
+              ? void completeSession()
+              : void navigateTo(nextPostId)}
           >
-            Next post
+            {canComplete ? 'Complete session' : 'Next post'}
           </button>
           <p className="post-viewer-navigation-hint">
             Use the left/right arrow keys or swipe on the post area to navigate.
           </p>
+          {navigationBusy && (
+            <p className="viewer-embed-status" role="status">Saving session progress…</p>
+          )}
+          {navigationError && (
+            <p className="viewer-embed-status" role="alert">{navigationError}</p>
+          )}
         </nav>
       )}
       {embedUrl && embedStatus === 'loading' && (

@@ -62,7 +62,7 @@ class CollectionIntegrationTest {
     @BeforeEach
     void clearDatabase() {
         jdbcTemplate.execute(
-                "TRUNCATE TABLE import_jobs, post_view_history, collection_posts, collections, post_categories, categories, "
+                "TRUNCATE TABLE import_jobs, watch_session_posts, watch_sessions, post_view_history, collection_posts, collections, post_categories, categories, "
                         + "post_notes, post_favorites, posts");
     }
 

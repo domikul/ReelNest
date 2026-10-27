@@ -156,6 +156,17 @@ and memberships are separate from imported post metadata; deleting a
 collection removes its memberships. Collection mutations also require the
 authenticated session and CSRF token.
 
+Create a curated session with `POST /api/watch-sessions` and an ordered
+`postIds` array (1–100 distinct saved posts); an optional name may be up to 80
+characters. `GET /api/watch-sessions` lists the 50 most recently created
+sessions, and `GET /api/watch-sessions/{id}` returns posts in their saved
+session order plus the current position. Use
+`PUT /api/watch-sessions/{id}/progress` with `{"currentPosition":1}` to persist
+the current zero-based position; setting it to the post count marks the
+session complete. Session metadata, ordered membership, and progress are
+separate from imported post data. All session endpoints require authentication,
+and creation/progress updates require the CSRF token.
+
 ## Environment variables
 
 The defaults below are for local development only; do not use them in a

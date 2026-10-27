@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LibraryPost } from '../api/library'
 import PostViewer from './PostViewer'
@@ -211,7 +211,7 @@ describe('single-post viewer layouts', () => {
     expect(onBack).toHaveBeenCalledOnce()
   })
 
-  it('keeps previous and next navigation in the supplied order and reports position', () => {
+  it('keeps previous and next navigation in the supplied order and reports position', async () => {
     const orderedPosts = [
       post,
       { ...post, id: '00000000-0000-0000-0000-000000000002' },
@@ -232,9 +232,9 @@ describe('single-post viewer layouts', () => {
 
     expect(screen.getByText('Post 2 of 3')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Previous post' }))
-    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[0].id)
+    await waitFor(() => expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[0].id))
     fireEvent.click(screen.getByRole('button', { name: 'Next post' }))
-    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[2].id)
+    await waitFor(() => expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[2].id))
   })
 
   it('disables navigation at the first and last posts and states the boundary', () => {
@@ -278,7 +278,7 @@ describe('single-post viewer layouts', () => {
     expect(onNavigatePost).not.toHaveBeenCalled()
   })
 
-  it('supports desktop arrow-key navigation', () => {
+  it('supports desktop arrow-key navigation', async () => {
     const orderedPosts = [
       post,
       { ...post, id: '00000000-0000-0000-0000-000000000002' },
@@ -297,13 +297,19 @@ describe('single-post viewer layouts', () => {
       />,
     )
 
-    fireEvent.keyDown(window, { key: 'ArrowLeft' })
-    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[0].id)
-    fireEvent.keyDown(window, { key: 'ArrowRight' })
-    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[2].id)
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'ArrowLeft' })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[0].id))
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'ArrowRight' })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[2].id))
   })
 
-  it('supports horizontal touch swipes without treating vertical scroll as navigation', () => {
+  it('supports horizontal touch swipes without treating vertical scroll as navigation', async () => {
     const orderedPosts = [
       post,
       { ...post, id: '00000000-0000-0000-0000-000000000002' },
@@ -325,7 +331,7 @@ describe('single-post viewer layouts', () => {
 
     fireEvent.touchStart(media, { touches: [{ clientX: 180, clientY: 100 }] })
     fireEvent.touchEnd(media, { changedTouches: [{ clientX: 100, clientY: 105 }] })
-    expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[2].id)
+    await waitFor(() => expect(onNavigatePost).toHaveBeenLastCalledWith(orderedPosts[2].id))
 
     fireEvent.touchStart(media, { touches: [{ clientX: 100, clientY: 100 }] })
     fireEvent.touchEnd(media, { changedTouches: [{ clientX: 105, clientY: 180 }] })

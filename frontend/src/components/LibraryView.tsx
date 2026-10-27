@@ -20,6 +20,7 @@ import PostCategoryEditor from './PostCategoryEditor'
 import CollectionManager from './CollectionManager'
 import PostCollectionEditor from './PostCollectionEditor'
 import PostViewer from './PostViewer'
+import WatchSessionManager from './WatchSessionManager'
 
 const pageSize = 20
 
@@ -435,6 +436,7 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
   const [navigationPostIds, setNavigationPostIds] = useState<string[]>([])
   const [managingCategories, setManagingCategories] = useState(false)
   const [managingCollections, setManagingCollections] = useState(false)
+  const [managingWatchSessions, setManagingWatchSessions] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
@@ -566,10 +568,12 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
             ? 'categories-title'
             : managingCollections
               ? 'collection-manager-title'
-              : 'library-title'
+              : managingWatchSessions
+                ? 'watch-sessions-title'
+                : 'library-title'
       }
     >
-      {!selectedPostId && !managingCategories && !managingCollections && (
+      {!selectedPostId && !managingCategories && !managingCollections && !managingWatchSessions && (
         <RecentlyWatchedSection
           onOpenPost={handleOpenPost}
           onSessionExpired={onSessionExpired}
@@ -600,6 +604,14 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
           onOpenPost={handleOpenPost}
           onSessionExpired={onSessionExpired}
         />
+      ) : managingWatchSessions ? (
+        <WatchSessionManager
+          csrfToken={csrfToken}
+          availablePosts={libraryPage?.items ?? []}
+          onBack={() => setManagingWatchSessions(false)}
+          onSessionExpired={onSessionExpired}
+          onViewRecorded={handleViewRecorded}
+        />
       ) : (
         <>
           <div className="library-heading">
@@ -626,6 +638,13 @@ function LibraryView({ csrfToken, onSessionExpired, onOpenImport }: LibraryViewP
                 onClick={() => setManagingCollections(true)}
               >
                 Manage collections
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setManagingWatchSessions(true)}
+              >
+                Watch sessions
               </button>
             </div>
           </div>
