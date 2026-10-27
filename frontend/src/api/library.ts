@@ -3,6 +3,8 @@ export interface LibraryPost {
   originalUrl: string
   savedAt: string
   favorite: boolean
+  creatorUsername: string | null
+  caption: string | null
 }
 
 export interface RecentlyWatchedPost extends LibraryPost {
@@ -74,7 +76,9 @@ function isLibraryPost(value: unknown): value is LibraryPost {
     isInstagramUrl(value.originalUrl) &&
     typeof value.savedAt === 'string' &&
     Number.isFinite(Date.parse(value.savedAt)) &&
-    typeof value.favorite === 'boolean'
+    typeof value.favorite === 'boolean' &&
+    (value.creatorUsername === null || typeof value.creatorUsername === 'string') &&
+    (value.caption === null || typeof value.caption === 'string')
   )
 }
 

@@ -29,7 +29,9 @@ public class CollectionService {
                     resultSet.getObject("id", UUID.class),
                     resultSet.getString("original_url"),
                     resultSet.getTimestamp("saved_at").toInstant(),
-                    resultSet.getBoolean("favorite"));
+                    resultSet.getBoolean("favorite"),
+                    resultSet.getString("creator_username"),
+                    resultSet.getString("caption"));
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -76,7 +78,11 @@ public class CollectionService {
         requireCollection(collectionId);
         long offset = (long) page * size;
         List<PostDto> posts = jdbcTemplate.query(
-                "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite "
+                "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite, "
+                        + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
+                        + "THEN p.source_metadata ->> 'creatorUsername' END AS creator_username, "
+                        + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
+                        + "THEN p.source_metadata ->> 'caption' END AS caption "
                         + "FROM posts p JOIN collection_posts cp ON cp.post_id = p.id "
                         + "LEFT JOIN post_favorites f ON f.post_id = p.id "
                         + "WHERE cp.collection_id = ? "

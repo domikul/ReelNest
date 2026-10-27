@@ -17,7 +17,9 @@ public class PostLibraryService {
                     resultSet.getObject("id", UUID.class),
                     resultSet.getString("original_url"),
                     resultSet.getTimestamp("saved_at").toInstant(),
-                    resultSet.getBoolean("favorite"));
+                    resultSet.getBoolean("favorite"),
+                    resultSet.getString("creator_username"),
+                    resultSet.getString("caption"));
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -38,7 +40,11 @@ public class PostLibraryService {
         pageParameters.add(size);
         pageParameters.add(offset);
         List<PostDto> posts = jdbcTemplate.query(
-                "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite "
+                "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite, "
+                        + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
+                        + "THEN p.source_metadata ->> 'creatorUsername' END AS creator_username, "
+                        + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
+                        + "THEN p.source_metadata ->> 'caption' END AS caption "
                         + "FROM posts p LEFT JOIN post_favorites f ON f.post_id = p.id "
                         + filter.whereClause()
                         + " ORDER BY p.saved_at DESC, p.id DESC LIMIT ? OFFSET ?",
@@ -100,7 +106,11 @@ public class PostLibraryService {
 
     public Optional<PostDto> findPost(UUID id) {
         List<PostDto> posts = jdbcTemplate.query(
-                "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite "
+                "SELECT p.id, p.original_url, p.saved_at, f.post_id IS NOT NULL AS favorite, "
+                        + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
+                        + "THEN p.source_metadata ->> 'creatorUsername' END AS creator_username, "
+                        + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
+                        + "THEN p.source_metadata ->> 'caption' END AS caption "
                         + "FROM posts p LEFT JOIN post_favorites f ON f.post_id = p.id WHERE p.id = ?",
                 POST_MAPPER,
                 id);
@@ -120,7 +130,11 @@ public class PostLibraryService {
     public List<RecentlyWatchedPostDto> findRecentlyWatched(int size) {
         return List.copyOf(jdbcTemplate.query(
                 "SELECT p.id, p.original_url, p.saved_at, "
-                        + "f.post_id IS NOT NULL AS favorite, v.last_viewed_at "
+                        + "f.post_id IS NOT NULL AS favorite, "
+                        + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
+                        + "THEN p.source_metadata ->> 'creatorUsername' END AS creator_username, "
+                        + "CASE WHEN jsonb_typeof(p.source_metadata) = 'object' "
+                        + "THEN p.source_metadata ->> 'caption' END AS caption, v.last_viewed_at "
                         + "FROM post_view_history v "
                         + "JOIN posts p ON p.id = v.post_id "
                         + "LEFT JOIN post_favorites f ON f.post_id = p.id "
@@ -130,6 +144,8 @@ public class PostLibraryService {
                         resultSet.getString("original_url"),
                         resultSet.getTimestamp("saved_at").toInstant(),
                         resultSet.getBoolean("favorite"),
+                        resultSet.getString("creator_username"),
+                        resultSet.getString("caption"),
                         resultSet.getTimestamp("last_viewed_at").toInstant()),
                 size));
     }

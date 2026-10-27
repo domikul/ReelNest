@@ -104,15 +104,15 @@ function ImportPanel({ csrfToken, onSessionExpired, onImportComplete }: ImportPa
       setFile(null)
       return
     }
-    if (!nextFile.name.toLowerCase().endsWith('.json')) {
+    if (!nextFile.name.toLowerCase().endsWith('.html')) {
       setFile(null)
-      setError('Choose a .json saved-post export.')
+      setError('Choose a .html saved-post export.')
       event.target.value = ''
       return
     }
     if (nextFile.size > maxFileSize) {
       setFile(null)
-      setError('This file is too large. Choose a JSON export smaller than 10 MB.')
+      setError('This file is too large. Choose an HTML export smaller than 10 MB.')
       event.target.value = ''
       return
     }
@@ -126,7 +126,7 @@ function ImportPanel({ csrfToken, onSessionExpired, onImportComplete }: ImportPa
       return
     }
     if (!file) {
-      setError('Choose a saved_posts JSON export before importing.')
+      setError('Choose a saved_posts HTML export before importing.')
       return
     }
 
@@ -170,7 +170,7 @@ function ImportPanel({ csrfToken, onSessionExpired, onImportComplete }: ImportPa
             ↑
           </span>
           <span className="file-picker-label">
-            <strong>{file ? 'Choose a different file' : 'Choose JSON file'}</strong>
+            <strong>{file ? 'Choose a different file' : 'Choose HTML file'}</strong>
             <span>Instagram saved_posts export</span>
           </span>
           <input
@@ -178,7 +178,7 @@ function ImportPanel({ csrfToken, onSessionExpired, onImportComplete }: ImportPa
             id="saved-posts-file"
             name="file"
             type="file"
-            accept=".json,application/json"
+            accept=".html,text/html"
             aria-describedby="upload-guidance"
             disabled={isSubmitting}
             onChange={handleFileChange}
@@ -191,8 +191,9 @@ function ImportPanel({ csrfToken, onSessionExpired, onImportComplete }: ImportPa
           </p>
         )}
         <p id="upload-guidance" className="upload-guidance">
-          JSON only, up to 10 MB. The file is sent to ReelNest for this import
-          and is not stored in browser storage.
+          HTML only, up to 10 MB. ReelNest imports saved dates, post links,
+          captions, and usernames from the export without retaining the file or
+          downloading media.
         </p>
 
         <button className="import-button" type="submit" disabled={isSubmitting || !file}>

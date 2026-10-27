@@ -1,8 +1,6 @@
 package com.reelnest.importer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,15 +74,16 @@ class InstagramImportIntegrationTest {
 
     @Test
     void importsValidRecordsAndReportsDuplicatesAndInvalidRecords() throws Exception {
-        ObjectNode valid = post("synthetic-id-1", "https://www.instagram.com/p/synthetic-1/", "value");
-        ObjectNode invalid = post("synthetic-id-2", "https://www.instagram.com/p/synthetic-2/", "value");
-        invalid.put("fbid", 42);
-        ArrayNode records = objectMapper.createArrayNode()
-                .add(valid)
-                .add(valid.deepCopy())
-                .add(invalid);
-
-        MvcResult result = upload(objectMapper.writeValueAsBytes(records))
+        String postUrl = "https://www.instagram.com/p/synthetic-1/";
+        MvcResult result = upload(savedPostsHtml(
+                        htmlPost(postUrl, "Oct 24, 2026 10:30 AM", "Synthetic caption", "synthetic_creator"),
+                        htmlPost(postUrl, "Oct 24, 2026 10:30 AM", "Synthetic caption", "synthetic_creator"),
+                        htmlPost(
+                                "https://www.instagram.com/p/synthetic-2/",
+                                "invalid date",
+                                "Another caption",
+                                "synthetic_creator"))
+                        .getBytes(StandardCharsets.UTF_8))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("COMPLETED_WITH_ERRORS"))
                 .andExpect(jsonPath("$.addedCount").value(1))
@@ -92,7 +91,7 @@ class InstagramImportIntegrationTest {
                 .andExpect(jsonPath("$.skippedCount").value(1))
                 .andExpect(jsonPath("$.errorCount").value(1))
                 .andExpect(jsonPath("$.errors[0].recordIndex").value(3))
-                .andExpect(jsonPath("$.errors[0].code").value("invalid_identifier"))
+                .andExpect(jsonPath("$.errors[0].code").value("invalid_timestamp"))
                 .andReturn();
 
         String importId = objectMapper.readTree(result.getResponse().getContentAsString())
@@ -110,12 +109,40 @@ class InstagramImportIntegrationTest {
     }
 
     @Test
+    void importsCaptionsAndCreatorDetailsForLibrarySearchAndPostDetails() throws Exception {
+        String postUrl = "https://www.instagram.com/p/caption-search-post/";
+        upload(savedPostsHtml(htmlPost(
+                        postUrl,
+                        "Oct 24, 2026 10:30 AM",
+                        "Synthetic searchable caption",
+                        "synthetic_creator"))
+                        .getBytes(StandardCharsets.UTF_8))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.addedCount").value(1));
+
+        UUID postId = jdbcTemplate.queryForObject(
+                "SELECT id FROM posts WHERE source_identifier = ?",
+                UUID.class,
+                sourceIdentifier(postUrl));
+        MockHttpSession session = authenticatedSession();
+        mockMvc.perform(get("/api/posts/{postId}", postId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.caption").value("Synthetic searchable caption"))
+                .andExpect(jsonPath("$.creatorUsername").value("synthetic_creator"));
+        mockMvc.perform(get("/api/posts").param("q", "searchable").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(postId.toString()))
+                .andExpect(jsonPath("$.items[0].caption").value("Synthetic searchable caption"));
+    }
+
+    @Test
     void reimportIsIdempotentAndSourceUpdatesPreservePersonalColumns() throws Exception {
-        byte[] initial = objectMapper.writeValueAsBytes(
-                objectMapper.createArrayNode().add(post(
-                        "synthetic-id-1",
-                        "https://www.instagram.com/p/synthetic-1/",
-                        "initial-metadata")));
+        String postUrl = "https://www.instagram.com/p/synthetic-1/";
+        byte[] initial = savedPostsHtml(htmlPost(
+                postUrl,
+                "Oct 24, 2026 10:30 AM",
+                "initial-metadata",
+                "synthetic_creator")).getBytes(StandardCharsets.UTF_8);
         upload(initial)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.addedCount").value(1));
@@ -123,7 +150,7 @@ class InstagramImportIntegrationTest {
         UUID postId = jdbcTemplate.queryForObject(
                 "SELECT id FROM posts WHERE source_identifier = ?",
                 UUID.class,
-                "synthetic-id-1");
+                sourceIdentifier(postUrl));
         setFavorite(postId, true);
         setNote(postId, "synthetic preserved note");
         recordView(postId);
@@ -145,11 +172,11 @@ class InstagramImportIntegrationTest {
         assertEquals(1, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_favorites", Integer.class));
         assertEquals(1, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_view_history", Integer.class));
 
-        byte[] changedMetadata = objectMapper.writeValueAsBytes(
-                objectMapper.createArrayNode().add(post(
-                        "synthetic-id-1",
-                        "https://www.instagram.com/p/synthetic-1/",
-                        "updated-metadata")));
+        byte[] changedMetadata = savedPostsHtml(htmlPost(
+                postUrl,
+                "Oct 24, 2026 10:30 AM",
+                "updated-metadata",
+                "synthetic_creator")).getBytes(StandardCharsets.UTF_8);
         upload(changedMetadata)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.addedCount").value(0))
@@ -179,7 +206,7 @@ class InstagramImportIntegrationTest {
         assertEquals(
                 "updated-metadata",
                 jdbcTemplate.queryForObject(
-                        "SELECT source_metadata #>> '{1,value}' FROM posts WHERE id = ?",
+                        "SELECT source_metadata ->> 'caption' FROM posts WHERE id = ?",
                         String.class,
                         postId));
         assertEquals(
@@ -195,27 +222,41 @@ class InstagramImportIntegrationTest {
     }
 
     @Test
-    void malformedJsonReturnsClearValidationError() throws Exception {
+    void rejectsLegacyJsonExportsWithClearValidationError() throws Exception {
         upload("{not-json}".getBytes(StandardCharsets.UTF_8))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("Upload must contain valid JSON."));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.detail").value(
+                        "Unsupported export structure. This endpoint accepts the observed saved_posts.html format."));
     }
 
     @Test
-    void unsupportedJsonShapeReturnsUnprocessableEntity() throws Exception {
-        String collectionsShape = """
-                [{
-                  "fbid": "synthetic-collection-id",
-                  "timestamp": 1700000000,
-                  "label_values": [{"dict": [{"dict": [{"href": "https://www.instagram.com/p/synthetic/"}]}]}],
-                  "media": []
-                }]
-                """;
-
-        upload(collectionsShape.getBytes(StandardCharsets.UTF_8))
+    void rejectsUnrecognizedHtmlStructure() throws Exception {
+        upload("<html><body>Unrelated export</body></html>".getBytes(StandardCharsets.UTF_8))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.detail").value(
-                        "Unsupported export structure. This endpoint accepts the observed saved_posts.json format."));
+                        "Unsupported export structure. This endpoint accepts the observed saved_posts.html format."));
+    }
+
+    @Test
+    void rejectsInvalidTimeZone() throws Exception {
+        MockHttpSession session = authenticatedSession();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "saved_posts.html",
+                MediaType.TEXT_HTML_VALUE,
+                savedPostsHtml(htmlPost(
+                        "https://www.instagram.com/p/synthetic-time-zone/",
+                        "Oct 24, 2026 10:30 AM",
+                        "Synthetic caption",
+                        "synthetic_creator")).getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(MockMvcRequestBuilders.multipart("/api/imports")
+                        .file(file)
+                        .param("timeZone", "Invalid/Zone")
+                        .session(session)
+                        .header("X-CSRF-TOKEN", csrfToken(session)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Time zone is invalid."));
     }
 
     @Test
@@ -456,31 +497,38 @@ class InstagramImportIntegrationTest {
     private ResultActions upload(byte[] content) throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
-                "saved_posts.json",
-                MediaType.APPLICATION_JSON_VALUE,
+                "saved_posts.html",
+                MediaType.TEXT_HTML_VALUE,
                 content);
         MockHttpSession session = authenticatedSession();
         String csrfToken = csrfToken(session);
         return mockMvc.perform(MockMvcRequestBuilders.multipart("/api/imports")
                 .file(file)
+                .param("timeZone", "UTC")
                 .session(session)
                 .header("X-CSRF-TOKEN", csrfToken));
     }
 
-    private ObjectNode post(String identifier, String url, String metadataValue) {
-        ObjectNode record = objectMapper.createObjectNode();
-        record.put("fbid", identifier);
-        record.put("timestamp", 1700000000L);
-        ArrayNode labelValues = objectMapper.createArrayNode();
-        ObjectNode link = objectMapper.createObjectNode();
-        link.put("href", url);
-        labelValues.add(link);
-        ObjectNode metadata = objectMapper.createObjectNode();
-        metadata.put("label", "synthetic-label");
-        metadata.put("value", metadataValue);
-        labelValues.add(metadata);
-        record.set("label_values", labelValues);
-        record.set("media", objectMapper.createArrayNode());
-        return record;
+    private String savedPostsHtml(String... records) {
+        return "<html><body><main class=\"_a706\">"
+                + String.join("", records)
+                + "</main></body></html>";
+    }
+
+    private String htmlPost(String url, String savedDate, String caption, String username) {
+        return """
+                <div class="_a6-g">
+                  <div class="_3-94 _a6-o">%s</div>
+                  <table><tbody>
+                    <tr><td colspan="2" class="_a6_q">Adres URL <a href="%s">%s</a></td></tr>
+                    <tr><td class="_a6_q">Napisy</td><td class="_2piu _a6_r">%s</td></tr>
+                    <tr><td class="_a6_q">Nazwa u\u017cytkownika</td><td class="_2piu _a6_r">%s</td></tr>
+                  </tbody></table>
+                </div>
+                """.formatted(savedDate, url, url, caption, username);
+    }
+
+    private String sourceIdentifier(String url) {
+        return "instagram-html:" + url.replaceAll("/+$", "");
     }
 }

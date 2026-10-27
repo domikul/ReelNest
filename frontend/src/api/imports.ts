@@ -26,17 +26,14 @@ export class ImportApiError extends Error {
 
 const validationMessages = new Set([
   'Upload must not be empty.',
-  'Upload must contain valid JSON.',
   'Upload could not be read.',
-  'Unsupported export structure. This endpoint accepts the observed saved_posts.json format.',
+  'Unsupported export structure. This endpoint accepts the observed saved_posts.html format.',
+  'Time zone is invalid.',
   'Upload exceeds the 10 MB limit.',
 ])
 
 const itemErrorMessages: Record<string, string> = {
-  invalid_record: 'This entry is not a JSON object.',
-  invalid_identifier: 'This entry is missing a valid source identifier.',
   invalid_timestamp: 'This entry has an invalid timestamp.',
-  invalid_metadata: 'This entry is missing its saved-post metadata.',
   missing_post_url: 'This entry does not include a saved-post link.',
   ambiguous_post_url: 'This entry includes more than one saved-post link.',
   invalid_post_url: 'This entry has an invalid saved-post link.',
@@ -81,13 +78,13 @@ function validationMessage(status: number, detail: unknown): string {
   }
 
   if (status === 413) {
-    return 'This file is too large. Choose a JSON export smaller than 10 MB.'
+    return 'This file is too large. Choose an HTML export smaller than 10 MB.'
   }
   if (status === 422) {
-    return 'This export format is not supported. Choose the saved_posts JSON export.'
+    return 'This export format is not supported. Choose the saved_posts HTML export.'
   }
   if (status >= 400 && status < 500) {
-    return 'The export could not be validated. Check the JSON file and try again.'
+    return 'The export could not be validated. Check the HTML file and try again.'
   }
   return 'The import service is unavailable. Please try again.'
 }
@@ -99,6 +96,7 @@ export function describeImportItemError(code: string): string {
 export async function uploadSavedPosts(file: File, csrfToken: string): Promise<ImportSummary> {
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('timeZone', Intl.DateTimeFormat().resolvedOptions().timeZone)
 
   let response: Response
   try {

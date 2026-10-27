@@ -297,7 +297,8 @@ class PostLibraryIntegrationTest {
                 .andExpect(jsonPath("$.originalUrl")
                         .value("https://www.instagram.com/p/synthetic-post-1/"))
                 .andExpect(jsonPath("$.savedAt").value("2026-02-12T10:15:30Z"))
-                .andExpect(jsonPath("$.caption").doesNotExist());
+                .andExpect(jsonPath("$.caption").value(nullValue()))
+                .andExpect(jsonPath("$.creatorUsername").value(nullValue()));
 
         mockMvc.perform(get("/api/posts/{postId}", UUID.randomUUID()).session(session))
                 .andExpect(status().isNotFound());

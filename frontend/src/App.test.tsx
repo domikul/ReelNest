@@ -204,7 +204,7 @@ describe('ReelNest application shell', () => {
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
     rejectImport = true
 
-    const file = new File(['synthetic'], 'saved_posts.json', { type: 'application/json' })
+    const file = new File(['synthetic'], 'saved_posts.html', { type: 'text/html' })
     await user.upload(await screen.findByLabelText(/Instagram saved_posts export/), file)
     await user.click(screen.getAllByRole('button', { name: 'Import saved posts' })[0])
 

@@ -104,15 +104,18 @@ The protected library API uses `GET /api/posts?page=0&size=20` for
 server-side pagination (page numbering starts at zero; page sizes are 1–100),
 and supports `q`, `favorite=true|false`, `categoryId`, and `collectionId`
 query parameters for server-side search and filtering. Search covers the
-persisted original URL, imported source metadata, personal notes, and assigned
-category names; it does not provide captions, creator details, or post-type
-search because those fields are not available in the current imported data.
+persisted original URL, imported source metadata (including caption and creator
+username), personal notes, and assigned category names.
 `GET /api/posts/{id}` for details, and
 `PUT /api/posts/{id}/favorite` with `{"favorite":true}` or
 `{"favorite":false}` to set favorite state idempotently. Current imported
-records provide a saved date and original Instagram URL; captions, creator
-details, post type, and thumbnails are not available in the stored importer
-metadata. Record a post-details view with
+records provide the saved date, original Instagram URL, caption, and creator
+username when present in the Instagram `saved_posts.html` export. The importer
+stores only these normalized post fields; it does not retain the uploaded HTML,
+download media, or infer unavailable post types and thumbnails. The browser
+sends its IANA time zone so localized saved dates are converted consistently.
+Captions are displayed as plain text on library cards, post details, and in the
+viewer, and are included in search. Record a post-details view with
 `PUT /api/posts/{id}/view` (authenticated session and CSRF token), then list
 up to 20 recently viewed posts with
 `GET /api/posts/recently-watched?size=8`. The history stores the most recent
@@ -121,13 +124,20 @@ future viewer; it does not track playback. Personal notes are separate from
 imported source metadata. The post-details **Open post viewer** action opens
 the single-post layouts.
 Reel/video, carousel, and image types have distinct fallback layouts, but the
-current importer/API does not supply post type, creator, caption, or media
-references. Existing imported posts therefore show the unknown-type and
-unavailable-media state. For supported Instagram `/p/` and `/reel/` URLs, the
-viewer attempts a sandboxed Instagram embed and always provides a safe
+current importer/API does not supply post type or media references. Existing
+imported posts therefore show the unknown-type and unavailable-media state
+while retaining any imported caption and creator username. For supported
+Instagram `/p/` and `/reel/` URLs, the viewer attempts a sandboxed Instagram
+embed and always provides a safe
 "Open original on Instagram" fallback when the URL is valid. Unsupported,
 blocked, or unavailable embeds fall back to the original post link; the viewer
 does not scrape Instagram, download media, or claim that an embed is playable.
+Library cards also load supported captioned Instagram embeds lazily as they
+approach the viewport and keep an "Open original on Instagram" link available.
+Imported captions are rendered separately as plain text, so they remain visible
+when Instagram omits them from the embed. Card previews use a larger,
+non-scrolling frame; unusually long posts may not fit completely. Loading card
+previews sends requests to Instagram, and previews may be blocked or unavailable.
 Previous/next navigation stays within the ordered posts on the current library
 or collection page, or the displayed Recently Watched list. On-screen controls,
 desktop arrow keys, and horizontal touch swipes are supported; navigation stops

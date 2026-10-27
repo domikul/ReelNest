@@ -1,22 +1,27 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { LibraryPost } from '../api/library'
 import LibraryView from './LibraryView'
 
 const fetchMock = vi.fn<typeof fetch>()
 
-const firstPost = {
+const firstPost: LibraryPost = {
   id: '00000000-0000-0000-0000-000000000001',
   originalUrl: 'https://www.instagram.com/p/synthetic-post-1/',
   savedAt: '2026-01-03T00:00:00Z',
   favorite: false,
+  creatorUsername: null,
+  caption: null,
 }
 
-const secondPost = {
+const secondPost: LibraryPost = {
   id: '00000000-0000-0000-0000-000000000002',
   originalUrl: 'https://www.instagram.com/p/synthetic-post-2/',
   savedAt: '2026-01-02T00:00:00Z',
   favorite: false,
+  creatorUsername: null,
+  caption: null,
 }
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -67,6 +72,33 @@ describe('protected paginated library', () => {
   afterEach(() => {
     cleanup()
     vi.unstubAllGlobals()
+  })
+
+  it('shows a lazy Instagram preview and Reel label on library cards', async () => {
+    const reelPost = {
+      ...firstPost,
+      originalUrl: 'https://www.instagram.com/reel/synthetic-code/',
+    }
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([reelPost]))
+      }
+      return jsonResponse([])
+    })
+    renderLibrary()
+
+    const preview = await screen.findByTitle('Instagram Reel preview')
+    expect(preview).toHaveAttribute(
+      'src',
+      'https://www.instagram.com/reel/synthetic-code/embed/captioned/',
+    )
+    expect(preview).toHaveAttribute('loading', 'lazy')
+    expect(screen.queryByRole('heading', { name: 'Instagram Reel' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Instagram may show the creator and caption/))
+      .not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Open original on Instagram/ }))
+      .toHaveAttribute('href', reelPost.originalUrl)
   })
 
   it('requests the next page from the server', async () => {
@@ -264,6 +296,45 @@ describe('protected paginated library', () => {
     expect(fetchMock.mock.calls.filter(([url, options]) =>
       String(url).endsWith('/view') && options?.method === 'PUT',
     )).toHaveLength(1)
+  })
+
+  it('shows imported captions and creators in the library and post viewer', async () => {
+    const captionedPost = {
+      ...firstPost,
+      creatorUsername: 'synthetic_creator',
+      caption: 'Synthetic caption from saved_posts.html.',
+    }
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.startsWith('/api/posts/recently-watched')) {
+        return jsonResponse([])
+      }
+      if (path.startsWith('/api/posts?')) {
+        return jsonResponse(libraryPage([captionedPost]))
+      }
+      if (path.endsWith('/view')) {
+        return noContentResponse()
+      }
+      if (path.endsWith('/notes')) {
+        return jsonResponse({ postId: firstPost.id, note: null, updatedAt: null })
+      }
+      if (path.endsWith('/categories')) {
+        return jsonResponse([])
+      }
+      if (path.endsWith('/collections')) {
+        return jsonResponse([])
+      }
+      return jsonResponse(captionedPost)
+    })
+    const user = userEvent.setup()
+    renderLibrary()
+
+    expect(await screen.findAllByText(captionedPost.caption)).not.toHaveLength(0)
+    await user.click(screen.getByRole('button', { name: 'View post details' }))
+    expect(await screen.findByText('synthetic_creator')).toBeInTheDocument()
+    expect(screen.getAllByText(captionedPost.caption)).not.toHaveLength(0)
+    await user.click(screen.getByRole('button', { name: 'Open post viewer' }))
+    expect(await screen.findByText(captionedPost.caption)).toBeInTheDocument()
   })
 
   it('navigates in the library page order and records each manually selected post as viewed', async () => {

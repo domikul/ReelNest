@@ -50,7 +50,9 @@ function isLibraryPost(value: unknown): value is LibraryPost {
       url.username.length === 0 &&
       url.password.length === 0 &&
       isDate(value.savedAt) &&
-      typeof value.favorite === 'boolean'
+      typeof value.favorite === 'boolean' &&
+      (value.creatorUsername === null || typeof value.creatorUsername === 'string') &&
+      (value.caption === null || typeof value.caption === 'string')
     )
   } catch {
     return false

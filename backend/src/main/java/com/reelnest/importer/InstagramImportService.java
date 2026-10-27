@@ -12,6 +12,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -45,8 +46,8 @@ public class InstagramImportService {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    public ImportSummary importSavedPosts(byte[] content) {
-        InstagramSavedPostsParser.ParsedImport parsedImport = parser.parse(content);
+    public ImportSummary importSavedPosts(byte[] content, ZoneId timeZone) {
+        InstagramSavedPostsParser.ParsedImport parsedImport = parser.parse(content, timeZone);
         UUID importId = UUID.randomUUID();
         Instant createdAt = Instant.now();
         List<ImportItemError> errors = new ArrayList<>(parsedImport.errors());

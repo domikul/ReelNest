@@ -8,6 +8,8 @@ const post: LibraryPost = {
   originalUrl: 'https://www.instagram.com/explore/',
   savedAt: '2026-01-03T00:00:00Z',
   favorite: false,
+  creatorUsername: null,
+  caption: null,
 }
 
 describe('single-post viewer layouts', () => {
@@ -92,9 +94,10 @@ describe('single-post viewer layouts', () => {
     const frame = screen.getByTitle(title)
     expect(frame).toHaveAttribute(
       'src',
-      `https://www.instagram.com/${route}/synthetic-code/embed/`,
+      `https://www.instagram.com/${route}/synthetic-code/embed/captioned/`,
     )
     expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer')
+    expect(frame).toHaveAttribute('scrolling', 'no')
     expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin')
     expect(screen.getByRole('link', { name: /Open original on Instagram/ }))
       .toHaveAttribute('href', `https://www.instagram.com/${route}/synthetic-code/`)
@@ -133,7 +136,7 @@ describe('single-post viewer layouts', () => {
     const violation = new Event('securitypolicyviolation')
     Object.defineProperties(violation, {
       violatedDirective: { value: 'frame-src' },
-      blockedURI: { value: 'https://www.instagram.com/p/synthetic-code/embed/' },
+      blockedURI: { value: 'https://www.instagram.com/p/synthetic-code/embed/captioned/' },
     })
     act(() => window.dispatchEvent(violation))
 

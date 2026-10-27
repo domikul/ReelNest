@@ -14,6 +14,7 @@ import type { Category } from '../api/categories'
 import { CollectionApiError, getCollections } from '../api/collections'
 import type { UserCollection } from '../api/collections'
 import FavoriteButton from './FavoriteButton'
+import InstagramPostPreview from './InstagramPostPreview'
 import PostNoteEditor from './PostNoteEditor'
 import CategoryManager from './CategoryManager'
 import PostCategoryEditor from './PostCategoryEditor'
@@ -136,6 +137,7 @@ function RecentlyWatchedSection({
                   <time dateTime={post.lastViewedAt}>
                     Viewed {formatSavedDate(post.lastViewedAt)}
                   </time>
+                  {post.caption && <p className="library-post-caption">{post.caption}</p>}
                   <button
                     className="secondary-button"
                     type="button"
@@ -286,8 +288,8 @@ function PostDetails({
         <PostViewer
           post={post}
           postType={null}
-          creatorUsername={null}
-          caption={null}
+          creatorUsername={post.creatorUsername}
+          caption={post.caption}
           navigationPostIds={navigationPostIds}
           onNavigatePost={onNavigatePost}
           onBack={() => setViewerOpen(false)}
@@ -365,11 +367,11 @@ function PostDetails({
               </div>
               <div>
                 <dt>Creator</dt>
-                <dd>Not available in this import</dd>
+                <dd>{post.creatorUsername?.trim() || 'Not available in this import'}</dd>
               </div>
               <div>
                 <dt>Caption</dt>
-                <dd>Not available in this import</dd>
+                <dd>{post.caption?.trim() || 'Not available in this import'}</dd>
               </div>
               <div>
                 <dt>Post type</dt>
@@ -901,11 +903,10 @@ function LibraryPostCard({
 
   return (
     <article className="library-post-card">
-      <div className="post-preview" aria-hidden="true">Preview unavailable</div>
+      <InstagramPostPreview originalUrl={post.originalUrl} />
       <div className="library-post-content">
         <SavedDate value={post.savedAt} />
-        <h3>Instagram post</h3>
-        <p>Caption and creator details are not available in this import.</p>
+        {post.caption && <p className="library-post-caption">{post.caption}</p>}
         <div className="library-post-actions">
           <button className="secondary-button" type="button" onClick={onOpen}>
             View post details

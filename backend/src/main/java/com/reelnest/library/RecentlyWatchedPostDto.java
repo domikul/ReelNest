@@ -8,5 +8,7 @@ public record RecentlyWatchedPostDto(
         String originalUrl,
         Instant savedAt,
         boolean favorite,
+        String creatorUsername,
+        String caption,
         Instant lastViewedAt) {
 }

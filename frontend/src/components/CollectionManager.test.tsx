@@ -29,12 +29,16 @@ const firstPost = {
   originalUrl: 'https://www.instagram.com/p/synthetic-collection-post-1/',
   savedAt: '2026-01-01T00:00:00Z',
   favorite: false,
+  creatorUsername: null,
+  caption: null,
 }
 const secondPost = {
   id: '00000000-0000-0000-0000-000000000032',
   originalUrl: 'https://www.instagram.com/p/synthetic-collection-post-2/',
   savedAt: '2026-01-02T00:00:00Z',
   favorite: false,
+  creatorUsername: null,
+  caption: null,
 }
 
 function page(items: typeof firstPost[], pageIndex = 0, totalElements = items.length) {

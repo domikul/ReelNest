@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TouchEvent } from 'react'
 import type { LibraryPost } from '../api/library'
+import { getInstagramEmbedUrl, parseInstagramUrl } from '../utils/instagram'
 
 interface PostViewerProps {
   post: LibraryPost
@@ -18,41 +19,6 @@ interface PostViewerProps {
 type EmbedStatus = 'loading' | 'loaded' | 'unavailable'
 
 const embedTimeoutMs = 12_000
-
-function parseInstagramUrl(value: string): URL | null {
-  try {
-    const url = new URL(value)
-    if (
-      (url.protocol !== 'https:' && url.protocol !== 'http:') ||
-      (url.hostname !== 'instagram.com' && !url.hostname.endsWith('.instagram.com')) ||
-      url.username.length > 0 ||
-      url.password.length > 0
-    ) {
-      return null
-    }
-    return url
-  } catch {
-    return null
-  }
-}
-
-function getInstagramEmbedUrl(originalUrl: string): string | null {
-  const url = parseInstagramUrl(originalUrl)
-  if (
-    !url ||
-    (url.hostname !== 'instagram.com' && url.hostname !== 'www.instagram.com')
-  ) {
-    return null
-  }
-
-  const match = /^\/(p|reel)\/([A-Za-z0-9_-]{1,128})\/?$/i.exec(url.pathname)
-  if (!match) {
-    return null
-  }
-  const route = match[1].toLowerCase()
-  const shortcode = match[2]
-  return `https://www.instagram.com/${route}/${shortcode}/embed/`
-}
 
 function describePostType(postType: string | null): {
   layout: 'video' | 'carousel' | 'image' | 'unknown'
@@ -285,6 +251,7 @@ function PostViewer({
             src={embedUrl}
             loading="lazy"
             referrerPolicy="no-referrer"
+            scrolling="no"
             sandbox="allow-scripts allow-same-origin"
             ref={iframeRef}
             onLoad={() => {

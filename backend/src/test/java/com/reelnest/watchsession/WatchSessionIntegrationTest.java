@@ -2,8 +2,6 @@ package com.reelnest.watchsession;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
@@ -169,15 +168,18 @@ class WatchSessionIntegrationTest {
         UUID watchSessionId = createSession(session, "Import-safe session", firstPost, secondPost);
         updateProgress(session, watchSessionId, 1).andExpect(status().isOk());
 
-        ArrayNode export = objectMapper.createArrayNode();
-        export.add(importRecord("synthetic-watch-session-post-1", "changed metadata"));
+        String export = savedPostsHtml(htmlPost(
+                "https://www.instagram.com/p/synthetic-watch-session-post-1/",
+                "Oct 24, 2026 10:30 AM",
+                "changed metadata"));
         MockMultipartFile file = new MockMultipartFile(
                 "file",
-                "saved_posts.json",
-                MediaType.APPLICATION_JSON_VALUE,
-                objectMapper.writeValueAsBytes(export));
+                "saved_posts.html",
+                MediaType.TEXT_HTML_VALUE,
+                export.getBytes(StandardCharsets.UTF_8));
         mockMvc.perform(MockMvcRequestBuilders.multipart("/api/imports")
                         .file(file)
+                        .param("timeZone", "UTC")
                         .session(session)
                         .header("X-CSRF-TOKEN", csrfToken(session)))
                 .andExpect(status().isCreated());
@@ -236,21 +238,20 @@ class WatchSessionIntegrationTest {
                 .content("{\"currentPosition\":" + position + "}"));
     }
 
-    private ObjectNode importRecord(String identifier, String metadataValue) {
-        ObjectNode record = objectMapper.createObjectNode();
-        record.put("fbid", identifier);
-        record.put("timestamp", 1700000000L);
-        ArrayNode labelValues = objectMapper.createArrayNode();
-        ObjectNode link = objectMapper.createObjectNode();
-        link.put("href", "https://www.instagram.com/p/" + identifier + "/");
-        labelValues.add(link);
-        ObjectNode metadata = objectMapper.createObjectNode();
-        metadata.put("label", "synthetic-label");
-        metadata.put("value", metadataValue);
-        labelValues.add(metadata);
-        record.set("label_values", labelValues);
-        record.set("media", objectMapper.createArrayNode());
-        return record;
+    private String savedPostsHtml(String record) {
+        return "<html><body><main class=\"_a706\">" + record + "</main></body></html>";
+    }
+
+    private String htmlPost(String url, String savedDate, String caption) {
+        return """
+                <div class="_a6-g">
+                  <div class="_3-94 _a6-o">%s</div>
+                  <table><tbody>
+                    <tr><td colspan="2" class="_a6_q">Adres URL <a href="%s">%s</a></td></tr>
+                    <tr><td class="_a6_q">Napisy</td><td class="_2piu _a6_r">%s</td></tr>
+                  </tbody></table>
+                </div>
+                """.formatted(savedDate, url, url, caption);
     }
 
     private MockHttpSession authenticatedSession() throws Exception {

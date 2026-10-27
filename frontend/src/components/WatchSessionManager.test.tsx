@@ -11,12 +11,16 @@ const firstPost: LibraryPost = {
   originalUrl: 'https://www.instagram.com/p/synthetic-session-post-1/',
   savedAt: '2026-01-03T00:00:00Z',
   favorite: false,
+  creatorUsername: null,
+  caption: null,
 }
 const secondPost: LibraryPost = {
   id: '00000000-0000-0000-0000-000000000102',
   originalUrl: 'https://www.instagram.com/p/synthetic-session-post-2/',
   savedAt: '2026-01-02T00:00:00Z',
   favorite: false,
+  creatorUsername: null,
+  caption: null,
 }
 const sessionId = '00000000-0000-0000-0000-000000000201'
 

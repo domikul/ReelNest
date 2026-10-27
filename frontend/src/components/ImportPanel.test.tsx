@@ -29,8 +29,8 @@ function jsonResponse(payload: unknown, status = 201): Response {
   })
 }
 
-function savedPostsFile(name = 'saved_posts.json'): File {
-  return new File(['{"generated":"test data"}'], name, { type: 'application/json' })
+function savedPostsFile(name = 'saved_posts.html'): File {
+  return new File(['<html><body></body></html>'], name, { type: 'text/html' })
 }
 
 async function selectFile(file = savedPostsFile()) {
@@ -89,15 +89,18 @@ describe('Instagram saved-post import flow', () => {
     expect(options?.credentials).toBe('include')
     expect(options?.body).toBeInstanceOf(FormData)
     expect((options?.body as FormData).get('file')).toBe(file)
+    expect((options?.body as FormData).get('timeZone')).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    )
     expect(onImportComplete).toHaveBeenCalledOnce()
   })
 
-  it('rejects a non-JSON file before sending it', async () => {
+  it('rejects a non-HTML file before sending it', async () => {
     renderImportPanel()
 
     await selectFile(savedPostsFile('export.txt'))
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Choose a .json saved-post export.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose a .html saved-post export.')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -111,7 +114,7 @@ describe('Instagram saved-post import flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Import saved posts' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This export format is not supported. Choose the saved_posts JSON export.',
+      'This export format is not supported. Choose the saved_posts HTML export.',
     )
     expect(screen.queryByText('Unexpected response detail.')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Retry import' })).toBeEnabled()

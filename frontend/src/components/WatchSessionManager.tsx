@@ -277,8 +277,8 @@ function WatchSessionManager({
         <PostViewer
           post={currentPost}
           postType={null}
-          creatorUsername={null}
-          caption={null}
+          creatorUsername={currentPost.creatorUsername}
+          caption={currentPost.caption}
           navigationPostIds={activeSession.posts.map((post) => post.id)}
           onNavigatePost={handleNavigatePost}
           onComplete={handleCompleteSession}

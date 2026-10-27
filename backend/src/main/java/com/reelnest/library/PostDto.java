@@ -7,5 +7,7 @@ public record PostDto(
         UUID id,
         String originalUrl,
         Instant savedAt,
-        boolean favorite) {
+        boolean favorite,
+        String creatorUsername,
+        String caption) {
 }
